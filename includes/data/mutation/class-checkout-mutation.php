@@ -523,6 +523,25 @@ class Checkout_Mutation {
 		// Store Order ID in session so it can be re-used after payment failure.
 		WC()->session->set( 'order_awaiting_payment', $order_id );
 
+		/**
+		 * Allow an integration to defer payment after checkout validation and order creation.
+		 *
+		 * Return null for normal gateway processing, or a payment result array.
+		 * A deferred result must not use 'success': that empties the cart below.
+		 * This hook never applies to prepaid/free orders or native WooCommerce checkout.
+		 *
+		 * @param array|null $result         Payment result override.
+		 * @param int        $order_id       Validated checkout order ID.
+		 * @param string     $payment_method Available gateway ID.
+		 */
+		$deferred_result = apply_filters( 'graphql_woocommerce_checkout_payment_result', null, $order_id, $payment_method );
+		if ( null !== $deferred_result ) {
+			if ( ! is_array( $deferred_result ) || ! isset( $deferred_result['result'], $deferred_result['redirect'] ) ) {
+				throw new UserError( __( 'Invalid checkout payment result.', 'wp-graphql-woocommerce' ) );
+			}
+			return $deferred_result;
+		}
+
 		$process_payment_args = apply_filters(
 			"graphql_{$payment_method}_process_payment_args",
 			[ $order_id ],
