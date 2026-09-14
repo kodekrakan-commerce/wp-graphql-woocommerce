@@ -615,6 +615,25 @@ class Checkout_Mutation {
 		// Update session for customer and totals.
 		self::update_session( $data );
 
+		// WooCommerce's pending order can reserve the last available stock.
+		// Its normal stock validation then rejects an identical checkout retry
+		// before create_order() reaches its native cart-hash reuse branch. Only
+		// reuse an already validated, unchanged order in this exact session.
+		$retry_id = absint( WC()->session->get( 'order_awaiting_payment' ) );
+		$retry_order = $retry_id ? wc_get_order( $retry_id ) : false;
+		if ( $retry_order instanceof \WC_Order
+			&& $retry_order->get_meta( '_woonuxt_deferred_payment' ) === 'yes'
+			&& $retry_order->get_payment_method() === 'stripe'
+			&& $data['payment_method'] === 'stripe'
+			&& $retry_order->has_status( [ 'pending', 'failed' ] )
+			&& ! $retry_order->is_paid()
+			&& $retry_order->has_cart_hash( WC()->cart->get_cart_hash() )
+			&& (int) $retry_order->get_customer_id() === get_current_user_id()
+			&& self::matches_retry_checkout_data( $retry_order, $data ) ) {
+			$results = [ 'result' => 'pending', 'redirect' => '' ];
+			return $retry_id;
+		}
+
 		// Validate posted data and cart items before proceeding.
 		self::validate_checkout( $data );
 
@@ -630,6 +649,15 @@ class Checkout_Mutation {
 			throw new UserError( __( 'Unable to create order.', 'wp-graphql-woocommerce' ) );
 		}
 
+		// A narrow guest summary can be reloaded after redirect or cart clearing.
+		// Bind only the newly validated order to this server-side WC session.
+		if ( WC()->session && $order->get_order_key() ) {
+			$summary_orders = WC()->session->get( 'wl_checkout_summary_orders', [] );
+			$summary_orders = is_array( $summary_orders ) ? $summary_orders : [];
+			$summary_orders[ $order_id ] = hash( 'sha256', $order->get_order_key() );
+			WC()->session->set( 'wl_checkout_summary_orders', array_slice( $summary_orders, -10, null, true ) );
+		}
+
 		// Add meta data.
 		if ( ! empty( $input['metaData'] ) ) {
 			self::update_order_meta( $order_id, $input['metaData'], $input, $context, $info );
@@ -638,47 +666,13 @@ class Checkout_Mutation {
 		// phpcs:ignore WordPress.NamingConventions.PrefixAllGlobals.NonPrefixedHooknameFound
 		do_action( 'woocommerce_checkout_order_processed', $order_id, $data, $order );
 
-		if ( WC()->cart->needs_payment() && ( empty( $input['isPaid'] ) ) ) {
+		// The browser cannot attest that an order has been paid. In particular,
+		// isPaid, transactionId and checkout metadata are not provider evidence.
+		// Use the newly created order (after validation/totals) as the authority.
+		if ( $order->needs_payment() ) {
 			$results = self::process_order_payment( $order_id, $data['payment_method'] );
 		} else {
-			$transaction_id = ! empty( $input['transactionId'] ) ? $input['transactionId'] : '';
-
-			/**
-			 * Use this to do some last minute transaction ID validation.
-			 *
-			 * @param bool        $is_valid        Is transaction ID valid.
-			 * @param \WC_Order   $order           Order being processed.
-			 * @param String|null $transaction_id  Order payment transaction ID.
-			 * @param array       $data            Order data.
-			 * @param array       $input           Order raw input data.
-			 * @param \WPGraphQL\AppContext  $context         Request's AppContext instance.
-			 * @param \GraphQL\Type\Definition\ResolveInfo $info            Request's ResolveInfo instance.
-			 */
-			$valid = apply_filters(
-				'graphql_checkout_prepaid_order_validation',
-				true,
-				$order,
-				$transaction_id,
-				$data,
-				$input,
-				$context,
-				$info
-			);
-
-			if ( $valid ) {
-				$results = self::process_order_without_payment( $order_id, $transaction_id );
-			} else {
-				$results = [
-					'result'   => 'failed',
-					'redirect' => apply_filters(
-						'graphql_woocommerce_checkout_payment_failed_redirect',
-						$order->get_checkout_payment_url(),
-						$order,
-						$order_id,
-						$transaction_id
-					),
-				];
-			}
+			$results = self::process_order_without_payment( $order_id );
 		}//end if
 
 		if ( 'success' === $results['result'] ) {
@@ -686,6 +680,33 @@ class Checkout_Mutation {
 		}
 
 		return $order_id;
+	}
+
+	/** Check that a retry retains the validated addresses and shipping selection. */
+	protected static function matches_retry_checkout_data( $order, $data ) {
+		foreach ( [ 'billing', 'shipping' ] as $type ) {
+			foreach ( [ 'first_name', 'last_name', 'company', 'address_1', 'address_2',
+				'city', 'state', 'postcode', 'country' ] as $field ) {
+				$getter = 'get_' . $type . '_' . $field;
+				if ( (string) ( $data[ $type . '_' . $field ] ?? '' ) !== (string) $order->{$getter}() ) {
+					return false;
+				}
+			}
+		}
+		foreach ( [ 'email', 'phone' ] as $field ) {
+			$getter = 'get_billing_' . $field;
+			if ( (string) ( $data[ 'billing_' . $field ] ?? '' ) !== (string) $order->{$getter}() ) {
+				return false;
+			}
+		}
+		$selected = array_values( array_filter( (array) ( $data['shipping_method'] ?? [] ) ) );
+		$saved = [];
+		foreach ( $order->get_shipping_methods() as $rate ) {
+			$id = $rate->get_method_id();
+			$instance = $rate->get_instance_id();
+			$saved[] = $instance ? $id . ':' . $instance : $id;
+		}
+		return $selected === $saved;
 	}
 
 	/**
@@ -753,9 +774,42 @@ class Checkout_Mutation {
 		}
 
 		if ( $meta_data ) {
-			foreach ( $meta_data as $meta ) {
-				$order->update_meta_data( $meta['key'], $meta['value'] );
+			// Checkout metadata is browser input. In particular, an underscore
+			// prefix does not make Stripe/order internals safe to write. Keep only
+			// non-authoritative presentation, consent and attribution keys used by
+			// the headless checkout. Payment reference/status/total are server-owned.
+			$allowed_keys = [
+				'order_via', '_consent_terms_accepted', '_consent_terms_timestamp',
+				'_consent_marketing', '_billing_nif', '_analytics_event_id',
+				'_ga_client_id', '_express_checkout', '_delivery_mode',
+				'_pickup_location_name', '_pickup_location_address',
+				'_stripe_payment_method_type',
+			];
+			foreach ( [
+				'source_type', 'origin', 'referrer', 'utm_source', 'utm_medium',
+				'utm_campaign', 'utm_content', 'utm_term', 'utm_id',
+				'utm_source_platform', 'utm_creative_format', 'marketing_tactic',
+				'session_entry', 'session_start_time', 'session_pages',
+				'user_agent', 'device_type',
+			] as $suffix ) {
+				$allowed_keys[] = '_wc_order_attribution_' . $suffix;
 			}
+			$allowed_meta = [];
+			foreach ( $meta_data as $meta ) {
+				$key = $meta['key'] ?? '';
+				$value = $meta['value'] ?? null;
+				if ( ! is_string( $key ) || ! in_array( $key, $allowed_keys, true )
+					|| ! is_scalar( $value ) || strlen( (string) $value ) > 500 ) {
+					continue;
+				}
+				if ( '_stripe_payment_method_type' === $key
+					&& ! in_array( $value, [ 'card', 'link', 'klarna', 'multibanco', 'mb_way', 'boleto', 'oxxo' ], true ) ) {
+					continue;
+				}
+				$order->update_meta_data( $key, sanitize_text_field( (string) $value ) );
+				$allowed_meta[] = [ 'key' => $key, 'value' => (string) $value ];
+			}
+			$meta_data = $allowed_meta;
 		}
 
 		/**
