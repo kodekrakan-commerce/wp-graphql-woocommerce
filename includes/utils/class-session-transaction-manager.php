@@ -26,6 +26,18 @@ class Session_Transaction_Manager {
 	 */
 	private $is_queued = false;
 
+	/** @var bool Whether this request owns the session execution lock. */
+	private $is_active = false;
+
+	/** @var bool Admission failed; later fields in the batch must also fail. */
+	private $has_failed = false;
+
+	/** @var string|null Session key captured before checkout/authentication can change it. */
+	private $customer_id = null;
+
+	/** @var bool Whether the short queue lock is held by this manager. */
+	private $queue_locked = false;
+
 	/**
 	 * Instance of parent session handler
 	 *
@@ -77,6 +89,7 @@ class Session_Transaction_Manager {
 
 		// Pop the transaction at the end of the request so all mutations in a batch
 		// execute under the same queue entry without interleaving from other requests.
+		add_action( 'shutdown', [ $this, 'guard_shutdown_saves' ], -1 );
 		register_shutdown_function( [ $this, 'pop_transaction_id' ] );
 	}
 
@@ -104,7 +117,10 @@ class Session_Transaction_Manager {
 		return \apply_filters(
 			'woographql_session_mutations',
 			[
+				'checkout',
 				'addToCart',
+				'addCartItems',
+				'fillCart',
 				'updateItemQuantities',
 				'addFee',
 				'applyCoupon',
@@ -127,49 +143,133 @@ class Session_Transaction_Manager {
 	 * @return string
 	 */
 	private function get_lock_name() {
-		// MySQL advisory lock names are limited to 64 characters.
-		$customer_id = $this->session_handler->get_customer_id();
-		return 'woo_stq_' . substr( md5( (string) $customer_id ), 0, 20 );
+		if ( null === $this->customer_id ) {
+			$this->customer_id = (string) $this->session_handler->get_customer_id();
+		}
+		return 'woo_stq_' . substr( md5( $this->customer_id ), 0, 20 );
+	}
+
+	/** @return string Name of the lock held for the whole HTTP request. */
+	private function get_execution_lock_name() {
+		return $this->get_lock_name() . '_execution';
 	}
 
 	/**
-	 * Acquires a MySQL advisory lock for atomic queue operations.
+	 * Acquire the short queue mutex. Never read/change the queue after failure.
 	 *
-	 * @param int $timeout  Seconds to wait for lock acquisition.
-	 *
-	 * @return bool Whether the lock was acquired.
+	 * @param int $timeout Maximum wait in seconds.
+	 * @return bool
 	 */
-	private function acquire_lock( $timeout = 10 ) {
+	private function acquire_lock( $timeout = 1 ) {
 		global $wpdb;
-		$lock_name = $this->get_lock_name();
 		// phpcs:ignore WordPress.DB.DirectDatabaseQuery
-		$result = $wpdb->get_var( $wpdb->prepare( 'SELECT GET_LOCK(%s, %d)', $lock_name, $timeout ) );
-		return '1' === $result;
+		$result = $wpdb->get_var( $wpdb->prepare( 'SELECT GET_LOCK(%s, %d)', $this->get_lock_name(), $timeout ) );
+		$this->queue_locked = '1' === (string) $result;
+		return $this->queue_locked;
 	}
 
-	/**
-	 * Releases the MySQL advisory lock.
-	 *
-	 * @return void
-	 */
+	/** @return void */
 	private function release_lock() {
 		global $wpdb;
-		$lock_name = $this->get_lock_name();
+		if ( $this->queue_locked ) {
+			// phpcs:ignore WordPress.DB.DirectDatabaseQuery
+			$wpdb->get_var( $wpdb->prepare( 'SELECT RELEASE_LOCK(%s)', $this->get_lock_name() ) );
+			$this->queue_locked = false;
+		}
+	}
+
+	/** @return bool Whether execution is exclusively owned on this DB connection. */
+	private function acquire_execution_lock() {
+		global $wpdb;
 		// phpcs:ignore WordPress.DB.DirectDatabaseQuery
-		$wpdb->get_var( $wpdb->prepare( 'SELECT RELEASE_LOCK(%s)', $lock_name ) );
+		return '1' === (string) $wpdb->get_var( $wpdb->prepare( 'SELECT GET_LOCK(%s, %d)', $this->get_execution_lock_name(), 0 ) );
+	}
+
+	/** @return bool Detect connection loss before another mutation or session save. */
+	private function owns_execution_lock() {
+		global $wpdb;
+		// phpcs:ignore WordPress.DB.DirectDatabaseQuery
+		return '1' === (string) $wpdb->get_var( $wpdb->prepare( 'SELECT IS_USED_LOCK(%s) = CONNECTION_ID()', $this->get_execution_lock_name() ) );
+	}
+
+	/** @return void */
+	private function release_execution_lock() {
+		global $wpdb;
+		// phpcs:ignore WordPress.DB.DirectDatabaseQuery
+		$wpdb->get_var( $wpdb->prepare( 'SELECT RELEASE_LOCK(%s)', $this->get_execution_lock_name() ) );
+	}
+
+	/** @return string The captured session's transient key. */
+	private function get_queue_key() {
+		$this->get_lock_name();
+		return "graphql_woocommerce_session_transactions_queue_{$this->customer_id}";
 	}
 
 	/**
-	 * Generates a timestamp-based transaction ID.
+	 * Read under the queue mutex, bypassing request-local option caches.
 	 *
-	 * Uses microtime to ensure chronological ordering when sorted alphabetically.
+	 * @return array
+	 */
+	private function read_transaction_queue() {
+		$key = $this->get_queue_key();
+		if ( wp_using_ext_object_cache() ) {
+			// Force refresh: a drop-in may otherwise return this request's stale local value.
+			$queue = wp_cache_get( $key, 'transient', true );
+		} else {
+			$option_keys = [ '_transient_' . $key, '_transient_timeout_' . $key ];
+			$notoptions  = wp_cache_get( 'notoptions', 'options' );
+			foreach ( $option_keys as $option_key ) {
+				wp_cache_delete( $option_key, 'options' );
+				if ( is_array( $notoptions ) ) {
+					unset( $notoptions[ $option_key ] );
+				}
+			}
+			if ( is_array( $notoptions ) ) {
+				wp_cache_set( 'notoptions', $notoptions, 'options' );
+			}
+			$queue = get_transient( $key );
+		}
+		return is_array( $queue ) ? array_values( $queue ) : [];
+	}
+
+	/**
+	 * Timestamp sorting plus random entropy: equal clocks cannot alias requests.
 	 *
 	 * @return string
 	 */
 	private static function generate_transaction_id() {
-		// Use zero-padded microtime for consistent alphabetical/chronological sorting.
 		list( $usec, $sec ) = explode( ' ', microtime() );
-		return sprintf( '%010d_%06d', $sec, intval( absint( $usec ) * 1000000 ) );
+		return sprintf( '%010d_%06d_%s', $sec, (int) ( (float) $usec * 1000000 ), bin2hex( random_bytes( 16 ) ) );
+	}
+
+	/**
+	 * Prevent a rejected request from saving its pre-admission session at shutdown.
+	 *
+	 * @throws \GraphQL\Error\UserError Always.
+	 * @return never
+	 */
+	private function fail_transaction() {
+		$this->disable_session_saves();
+		throw new \GraphQL\Error\UserError( __( 'The cart is busy. Please retry your request.', 'graphql-for-ecommerce' ) );
+	}
+
+	/** @return void Disable stale persistence when admission/ownership fails. */
+	private function disable_session_saves() {
+		$this->has_failed = true;
+		// QL init registers HTTP saves at 10 and native/non-HTTP saves at 20.
+		remove_action( 'shutdown', [ $this->session_handler, 'save_data' ], 10 );
+		remove_action( 'shutdown', [ $this->session_handler, 'save_data' ], 20 );
+		if ( function_exists( 'WC' ) && \WC()->customer ) {
+			remove_action( 'shutdown', [ \WC()->customer, 'save' ], 10 );
+		}
+		remove_action( 'woographql_session_transaction_complete', [ $this->session_handler, 'save_if_dirty' ], 10 );
+	}
+
+	/** @return void Run before WordPress/WooCommerce shutdown persistence callbacks. */
+	public function guard_shutdown_saves() {
+		if ( $this->has_failed || ( $this->is_queued && ( ! $this->is_active || ! $this->owns_execution_lock() ) ) ) {
+			$this->disable_session_saves();
+		}
 	}
 
 	/**
@@ -186,119 +286,129 @@ class Session_Transaction_Manager {
 	 * @return void
 	 */
 	public function update_transaction_queue( $source, $args, $context, $info ) {
-		// Bail early, if not one of the session mutations.
 		if ( ! in_array( $info->fieldName, self::get_session_mutations(), true ) ) { // phpcs:ignore WordPress.NamingConventions.ValidVariableName.UsedPropertyNotSnakeCase
 			return;
 		}
-
-		// If transaction ID already exists and is queued, this is a subsequent mutation in the
-		// same batch request. The queue entry is still at position [0], so just reload and proceed.
-		if ( ! is_null( $this->transaction_id ) && $this->is_queued ) {
-			$this->session_handler->reload_data();
+		if ( $this->has_failed ) {
+			$this->fail_transaction();
+		}
+		// Batched mutations keep both ownership and their current in-memory cart.
+		if ( $this->is_active ) {
+			if ( ! $this->owns_execution_lock() ) {
+				$this->fail_transaction();
+			}
 			return;
 		}
-
-		// Initialize transaction ID once per request.
-		if ( is_null( $this->transaction_id ) ) {
+		if ( null === $this->transaction_id ) {
 			$this->transaction_id = self::generate_transaction_id();
 		}
 
-		// Wait until our transaction ID is at the top of the queue before continuing.
-		if ( ! $this->next_transaction() ) {
-			usleep( 500000 );
-			$this->update_transaction_queue( $source, $args, $context, $info );
-		} else {
-			$this->session_handler->reload_data();
+		$deadline = hrtime( true ) + max( 1, (float) $this->get_timestamp_threshold() ) * 1000000000;
+		try {
+			while ( ! $this->next_transaction() ) {
+				if ( hrtime( true ) >= $deadline ) {
+					$this->fail_transaction();
+				}
+				usleep( 100000 );
+			}
+		} catch ( \Throwable $error ) {
+			$this->fail_transaction();
+		}
 
-			// Set a timestamp on the transaction, which will allow us to check for any stale
-			// transactions that accidentally get left behind.
-			$this->set_timestamp();
+		// The session/cart were initialized before waiting. Refresh once, after admission.
+		try {
+			$this->session_handler->reload_data();
+			if ( function_exists( 'WC' ) ) {
+				// Replace the pre-wait customer too; its shutdown save otherwise restores stale addresses.
+				if ( \WC()->customer ) {
+					remove_action( 'shutdown', [ \WC()->customer, 'save' ], 10 );
+					\WC()->customer = new \WC_Customer( get_current_user_id(), true );
+					add_action( 'shutdown', [ \WC()->customer, 'save' ], 10 );
+				}
+				if ( \WC()->cart ) {
+					\WC()->cart->set_cart_contents( [] );
+					\WC()->cart->get_cart_from_session();
+				}
+			}
+		} catch ( \Throwable $error ) {
+			$this->fail_transaction();
 		}
 	}
 
 	/**
-	 * Processes next transaction and returns whether the current transaction is the next transaction.
+	 * Admit a head atomically. Stale time alone never authorizes evicting a live owner.
 	 *
 	 * @return bool
 	 */
 	public function next_transaction() {
-		// Update transaction queue.
-		$transaction_queue = $this->get_transaction_queue();
-
-		// If lead transaction object invalid pop transaction and loop.
-		if ( ! is_array( $transaction_queue[0] ) ) {
-			$this->acquire_lock();
-			$transaction_queue = get_transient( "graphql_woocommerce_session_transactions_queue_{$this->session_handler->get_customer_id()}" );
-			if ( ! empty( $transaction_queue ) ) {
-				array_shift( $transaction_queue );
-				$this->save_transaction_queue( $transaction_queue );
-			}
-			$this->release_lock();
-
-			// If current transaction is the lead exit loop.
-		} elseif ( $this->transaction_id === $transaction_queue[0]['transaction_id'] ) {
+		if ( $this->is_active ) {
 			return true;
-		} elseif ( true === $this->did_transaction_expire( $transaction_queue ) ) {
-			// If transaction has expired, remove it from the queue array and continue loop.
-			$this->acquire_lock();
-			$transaction_queue = get_transient( "graphql_woocommerce_session_transactions_queue_{$this->session_handler->get_customer_id()}" );
-			if ( ! empty( $transaction_queue ) ) {
-				array_shift( $transaction_queue );
-				$this->save_transaction_queue( $transaction_queue );
+		}
+		if ( ! $this->acquire_lock() ) {
+			$this->fail_transaction();
+		}
+		try {
+			$queue = $this->get_transaction_queue();
+			$head  = $queue[0] ?? [];
+			if ( $this->transaction_id === ( $head['transaction_id'] ?? null ) ) {
+				if ( ! $this->acquire_execution_lock() ) {
+					return false;
+				}
+				$this->is_active       = true;
+				$queue[0]['active']    = true;
+				$queue[0]['timestamp'] = time();
+				$this->save_transaction_queue( $queue );
+				return true;
 			}
+
+			// The head is read and checked *inside* the same queue mutex as its removal.
+			// GET_LOCK(0) proves there is no live cooperating owner before recovery.
+			if ( $this->did_transaction_expire( $queue ) && $this->acquire_execution_lock() ) {
+				try {
+					array_shift( $queue );
+					$this->save_transaction_queue( $queue );
+				} finally {
+					$this->release_execution_lock();
+				}
+			}
+			return false;
+		} finally {
 			$this->release_lock();
 		}
-
-		return false;
 	}
 
 	/**
-	 * Adds transaction ID to the queue in sorted order and returns the transaction queue.
-	 *
-	 * Transaction IDs are timestamp-based, so alphabetical sorting preserves chronological order.
-	 * This ensures mutations from earlier requests always execute before mutations from later
-	 * requests, even if they are queued out of order.
+	 * Add this request under the queue mutex. An active head cannot be displaced.
 	 *
 	 * @return array
 	 */
 	public function get_transaction_queue() {
-		$this->acquire_lock();
-
-		// Get transaction queue.
-		$transaction_queue = get_transient( "graphql_woocommerce_session_transactions_queue_{$this->session_handler->get_customer_id()}" );
-		if ( ! $transaction_queue ) {
-			$transaction_queue = [];
+		$already_locked = $this->queue_locked;
+		if ( ! $already_locked && ! $this->acquire_lock() ) {
+			$this->fail_transaction();
 		}
-
-		// If transaction ID not in queue, add it in sorted order, and start transaction.
-		if ( ! in_array( $this->transaction_id, array_column( $transaction_queue, 'transaction_id' ), true ) ) {
-			$transaction_id = $this->transaction_id;
-			$snapshot       = $this->session_handler->get_session_data();
-
-			$entry = compact( 'transaction_id', 'snapshot' );
-
-			// Insert in sorted position based on transaction ID (timestamp-based).
-			$inserted = false;
-			foreach ( $transaction_queue as $index => $queued ) {
-				if ( ! empty( $transaction_id ) && strcmp( $transaction_id, $queued['transaction_id'] ) < 0 ) {
-					array_splice( $transaction_queue, $index, 0, [ $entry ] );
-					$inserted = true;
-					break;
+		try {
+			if ( null === $this->transaction_id ) {
+				$this->transaction_id = self::generate_transaction_id();
+			}
+			$queue = $this->read_transaction_queue();
+			if ( ! in_array( $this->transaction_id, array_column( $queue, 'transaction_id' ), true ) ) {
+				$entry = [ 'transaction_id' => $this->transaction_id, 'timestamp' => time() ];
+				$start = ! empty( $queue[0]['active'] ) ? 1 : 0;
+				$index = $start;
+				while ( isset( $queue[ $index ] ) && strcmp( $this->transaction_id, $queue[ $index ]['transaction_id'] ?? '' ) >= 0 ) {
+					++$index;
 				}
+				array_splice( $queue, $index, 0, [ $entry ] );
+				$this->save_transaction_queue( $queue );
 			}
-
-			if ( ! $inserted ) {
-				$transaction_queue[] = $entry;
-			}
-
-			// Update queue.
-			$this->save_transaction_queue( $transaction_queue );
 			$this->is_queued = true;
+			return $queue;
+		} finally {
+			if ( ! $already_locked ) {
+				$this->release_lock();
+			}
 		}
-
-		$this->release_lock();
-
-		return $transaction_queue;
 	}
 
 	/**
@@ -317,13 +427,17 @@ class Session_Transaction_Manager {
 	 */
 	public function complete_mutation( $payload, $input, $unfiltered_input, $context, $info, $mutation ) {
 		// Bail if transaction not started.
-		if ( is_null( $this->transaction_id ) || ! $this->is_queued ) {
+		if ( is_null( $this->transaction_id ) || ! $this->is_active || $this->has_failed ) {
 			return;
 		}
 
 		// Bail if not a session mutation.
 		if ( ! in_array( $mutation, self::get_session_mutations(), true ) ) {
 			return;
+		}
+
+		if ( ! $this->owns_execution_lock() ) {
+			$this->fail_transaction();
 		}
 
 		/**
@@ -345,71 +459,82 @@ class Session_Transaction_Manager {
 	 * @return void
 	 */
 	public function pop_transaction_id() {
-		// Bail if transaction not started.
-		if ( is_null( $this->transaction_id ) || ! $this->is_queued ) {
+		if ( null === $this->transaction_id || ! $this->is_queued ) {
 			return;
 		}
-
-		$this->acquire_lock();
-
-		// Get transaction queue.
-		$transaction_queue = get_transient( "graphql_woocommerce_session_transactions_queue_{$this->session_handler->get_customer_id()}" );
-
-		if ( ! empty( $transaction_queue[0]['transaction_id'] ) && $this->transaction_id === $transaction_queue[0]['transaction_id'] ) {
-			// Remove Transaction ID and update queue.
-			array_shift( $transaction_queue );
-			$this->save_transaction_queue( $transaction_queue );
+		try {
+			$this->guard_shutdown_saves();
+			// WP shutdown saves normally run first. Also cover explicit cleanup/error paths.
+			if ( $this->is_active && ! $this->has_failed ) {
+				$this->session_handler->save_if_dirty();
+			}
+			if ( ! $this->acquire_lock() ) {
+				return; // Keep the orphan entry for guarded recovery; never mutate unlocked.
+			}
+			try {
+				$queue = $this->read_transaction_queue();
+				foreach ( $queue as $index => $entry ) {
+					if ( $this->transaction_id === ( $entry['transaction_id'] ?? null ) ) {
+						array_splice( $queue, $index, 1 );
+						$this->save_transaction_queue( $queue );
+						break;
+					}
+				}
+			} finally {
+				$this->release_lock();
+			}
+		} finally {
+			if ( $this->is_active ) {
+				$this->release_execution_lock();
+			}
+			$this->transaction_id = null;
+			$this->is_queued      = false;
+			$this->is_active      = false;
 		}
-
-		$this->release_lock();
-
-		// Clear transaction state.
-		$this->transaction_id = null;
-		$this->is_queued      = false;
 	}
 
 	/**
-	 * Saves transaction queue.
+	 * Persist only under a successfully acquired queue mutex.
 	 *
-	 * @param array $queue  Transaction queue.
-	 *
+	 * @param array $queue Transaction queue.
 	 * @return void
 	 */
 	public function save_transaction_queue( $queue = [] ) {
-		// If queue empty delete transient and bail.
-		if ( empty( $queue ) ) {
-			delete_transient( "graphql_woocommerce_session_transactions_queue_{$this->session_handler->get_customer_id()}" );
-			return;
+		$already_locked = $this->queue_locked;
+		if ( ! $already_locked && ! $this->acquire_lock() ) {
+			$this->fail_transaction();
 		}
-
-		// Save transaction queue.
-		set_transient( "graphql_woocommerce_session_transactions_queue_{$this->session_handler->get_customer_id()}", $queue, 5 * MINUTE_IN_SECONDS );
+		try {
+			if ( empty( $queue ) ) {
+				delete_transient( $this->get_queue_key() );
+				if ( $this->read_transaction_queue() ) {
+					$this->fail_transaction();
+				}
+			} elseif ( ! set_transient( $this->get_queue_key(), $queue, 5 * MINUTE_IN_SECONDS ) && $queue !== $this->read_transaction_queue() ) {
+				$this->fail_transaction();
+			}
+		} finally {
+			if ( ! $already_locked ) {
+				$this->release_lock();
+			}
+		}
 	}
 
-	/**
-	 * Create transaction timestamp.
-	 *
-	 * @return void
-	 */
+	/** @return void Refresh only this request's owned head. */
 	public function set_timestamp() {
-		$this->acquire_lock();
-
-		$transaction_queue = get_transient( "graphql_woocommerce_session_transactions_queue_{$this->session_handler->get_customer_id()}" );
-		if ( ! $transaction_queue ) {
-			$transaction_queue = [];
+		if ( ! $this->is_active || ! $this->acquire_lock() ) {
+			$this->fail_transaction();
 		}
-
-		// Bail if we don't have a queue to add a timestamp against.
-		if ( empty( $transaction_queue[0] ) ) {
+		try {
+			$queue = $this->read_transaction_queue();
+			if ( $this->transaction_id !== ( $queue[0]['transaction_id'] ?? null ) ) {
+				$this->fail_transaction();
+			}
+			$queue[0]['timestamp'] = time();
+			$this->save_transaction_queue( $queue );
+		} finally {
 			$this->release_lock();
-			return;
 		}
-
-		$transaction_queue[0]['timestamp'] = time();
-
-		$this->save_transaction_queue( $transaction_queue );
-
-		$this->release_lock();
 	}
 
 	/**
