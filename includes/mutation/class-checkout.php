@@ -90,7 +90,7 @@ class Checkout {
 			'isPaid'                 => [
 				'type'        => 'Boolean',
 				'description' => static function () {
-					return __( 'Define if the order is paid. It will set the status to processing and reduce stock items.', 'graphql-for-ecommerce' );
+					return __( 'Legacy input; payment completion is determined by the server.', 'graphql-for-ecommerce' );
 				},
 			],
 			'metaData'               => [
@@ -105,18 +105,7 @@ class Checkout {
 					return __( 'Order customer note', 'graphql-for-ecommerce' );
 				},
 			],
-			'fees'                   => [
-				'type'        => [ 'list_of' => 'FeeInput' ],
-				'description' => static function () {
-					return __( 'Fees to add to the order.', 'graphql-for-ecommerce' );
-				},
-			],
-			'createdVia'             => [
-				'type'        => 'String',
-				'description' => static function () {
-					return __( 'Source of the order. Useful when WooCommerce is driven from multiple sources. Defaults to "checkout".', 'graphql-for-ecommerce' );
-				},
-			],
+
 		];
 	}
 

@@ -37,12 +37,7 @@ class Create_Account_Input {
 							return __( 'Customer password', 'graphql-for-ecommerce' );
 						},
 					],
-					'authenticate' => [
-						'type'        => 'Boolean',
-						'description' => static function () {
-							return __( 'Set the current user to the newly created customer after checkout.', 'graphql-for-ecommerce' );
-						},
-					],
+
 				],
 			]
 		);
