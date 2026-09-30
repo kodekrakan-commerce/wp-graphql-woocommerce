@@ -45,11 +45,15 @@ class Coupon_Delete {
 		return [
 			'id'          => [
 				'type'        => [ 'non_null' => 'ID' ],
-				'description' => __( 'Unique identifier for the object.', 'wp-graphql-woocommerce' ),
+				'description' => static function () {
+					return __( 'Unique identifier for the object.', 'graphql-for-ecommerce' );
+				},
 			],
 			'forceDelete' => [
 				'type'        => 'Boolean',
-				'description' => __( 'Delete the object. Set to "false" by default.', 'wp-graphql-woocommerce' ),
+				'description' => static function () {
+					return __( 'Delete the object. Set to "false" by default.', 'graphql-for-ecommerce' );
+				},
 			],
 		];
 	}
@@ -89,13 +93,13 @@ class Coupon_Delete {
 		// Retrieve order ID.
 		$coupon_id = Utils::get_database_id_from_id( $input['id'] );
 		if ( empty( $coupon_id ) ) {
-			throw new UserError( __( 'Coupon ID provided is missing or invalid. Please check input and try again.', 'wp-graphql-woocommerce' ) );
+			throw new UserError( __( 'Coupon ID provided is missing or invalid. Please check input and try again.', 'graphql-for-ecommerce' ) );
 		}
 
 		$coupon = new Coupon( $coupon_id );
 
 		if ( ! $coupon->ID ) {
-			throw new UserError( __( 'Invalid ID.', 'wp-graphql-woocommerce' ) );
+			throw new UserError( __( 'Invalid ID.', 'graphql-for-ecommerce' ) );
 		}
 
 		if ( ! wc_rest_check_post_permissions( 'shop_coupon', 'delete', $coupon->ID ) ) {
@@ -108,7 +112,7 @@ class Coupon_Delete {
 			throw new UserError(
 				sprintf(
 					/* translators: %s: post type */
-					__( 'Sorry, you are not allowed to delete %s.', 'wp-graphql-woocommerce' ),
+					__( 'Sorry, you are not allowed to delete %s.', 'graphql-for-ecommerce' ),
 					lcfirst( $post_type_object->label )
 				)
 			);

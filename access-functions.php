@@ -177,7 +177,7 @@ if ( ! function_exists( 'wc_graphql_price_range' ) ) {
 
 		$price = sprintf(
 			/* translators: 1: price from 2: price to */
-			_x( '%1$s %2$s %3$s', 'Price range: from-to', 'wp-graphql-woocommerce' ),
+			_x( '%1$s %2$s %3$s', 'Price range: from-to', 'graphql-for-ecommerce' ),
 			is_numeric( $from ) ? wc_graphql_price( $from ) : $from,
 			apply_filters( 'graphql_woocommerce_format_price_range_separator', '-', $from, $to ),
 			is_numeric( $to ) ? wc_graphql_price( $to ) : $to
@@ -218,6 +218,7 @@ if ( ! function_exists( 'wc_graphql_camel_case_to_underscore' ) ) {
 }//end if
 
 if ( ! function_exists( 'woographql_setting' ) ) :
+
 	/**
 	 * Get an option value from WPGraphQL for WooCommerce settings
 	 *
@@ -259,9 +260,11 @@ if ( ! function_exists( 'woographql_setting' ) ) :
 		 */
 		return apply_filters( 'woographql_settings_section_field_value', $value, $default_value, $option_name, $section_fields, $section_name );
 	}
+
 endif;
 
 if ( ! function_exists( 'woographql_get_session_uid' ) ) :
+
 	/**
 	 * Returns end-user's customer ID.
 	 *
@@ -276,9 +279,11 @@ if ( ! function_exists( 'woographql_get_session_uid' ) ) :
 		$session = WC()->session;
 		return $session->get_customer_id();
 	}
+
 endif;
 
 if ( ! function_exists( 'woographql_get_session_token' ) ) :
+
 	/**
 	 * Returns session user's "client_session_id"
 	 *
@@ -293,13 +298,15 @@ if ( ! function_exists( 'woographql_get_session_token' ) ) :
 		$session = WC()->session;
 		return $session->get_client_session_id();
 	}
+
 endif;
 
 if ( ! function_exists( 'woographql_create_nonce' ) ) :
+
 	/**
 	 * Creates WPGraphQL for WooCommerce session transfer nonces.
 	 *
-	 * @param string|int $action  Nonce name.
+	 * @param string|-1 $action  Nonce name.
 	 *
 	 * @return string The nonce.
 	 */
@@ -310,14 +317,16 @@ if ( ! function_exists( 'woographql_create_nonce' ) ) :
 
 		return substr( wp_hash( $i . '|' . $action . '|' . $uid . '|' . $token, 'nonce' ), -12, 10 );
 	}
+
 endif;
 
 if ( ! function_exists( 'woographql_verify_nonce' ) ) :
+
 	/**
 	 * Validate WPGraphQL for WooCommerce session transfer nonces.
 	 *
-	 * @param string         $nonce   Nonce to validated.
-	 * @param integer|string $action  Nonce name.
+	 * @param string    $nonce   Nonce to validated.
+	 * @param string|-1 $action  Nonce name.
 	 *
 	 * @return false|int
 	 */
@@ -359,4 +368,53 @@ if ( ! function_exists( 'woographql_verify_nonce' ) ) :
 		// Invalid nonce.
 		return false;
 	}
+
 endif;
+
+if ( ! function_exists( 'wc_graphql_resolve_product_type' ) ) {
+	/**
+	 * Resolves GraphQL type for provided product model.
+	 *
+	 * @param mixed $value Product model.
+	 *
+	 * @return mixed
+	 */
+	function wc_graphql_resolve_product_type( $value ) {
+		return \WPGraphQL\WooCommerce\Post_Types::resolve_product_type( $value );
+	}
+}
+
+if ( ! function_exists( 'wc_graphql_is_session_handler_disabled' ) ) {
+	/**
+	 * Returns true if the QL Session Handler is disabled.
+	 *
+	 * @return boolean
+	 */
+	function wc_graphql_is_session_handler_disabled() {
+		return \WPGraphQL\WooCommerce\WooCommerce::is_session_handler_disabled();
+	}
+}
+
+if ( ! function_exists( 'wc_graphql_enabled_authorizing_url_fields' ) ) {
+	/**
+	 * Returns array of enabled authorizing URL field slugs.
+	 *
+	 * @return array
+	 */
+	function wc_graphql_enabled_authorizing_url_fields() {
+		return \WPGraphQL\WooCommerce\WooCommerce::enabled_authorizing_url_fields();
+	}
+}
+
+if ( ! function_exists( 'wc_graphql_get_authorizing_url_nonce_param_name' ) ) {
+	/**
+	 * Return the nonce query parameter name for the provided field.
+	 *
+	 * @param string $field  URL field slug.
+	 *
+	 * @return string|null
+	 */
+	function wc_graphql_get_authorizing_url_nonce_param_name( $field ) {
+		return \WPGraphQL\WooCommerce\WooCommerce::get_authorizing_url_nonce_param_name( $field );
+	}
+}

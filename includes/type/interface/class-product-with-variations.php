@@ -11,7 +11,6 @@ namespace WPGraphQL\WooCommerce\Type\WPInterface;
 use GraphQL\Type\Definition\ResolveInfo;
 use WPGraphQL\AppContext;
 use WPGraphQL\WooCommerce\Connection\Products;
-use WPGraphQL\WooCommerce\Core_Schema_Filters as Core;
 use WPGraphQL\WooCommerce\Data\Connection\Product_Connection_Resolver;
 
 /**
@@ -28,11 +27,13 @@ class Product_With_Variations {
 		register_graphql_interface_type(
 			'ProductWithVariations',
 			[
-				'description' => __( 'A product with variations.', 'wp-graphql-woocommerce' ),
-				'interfaces'  => [ 'Node', 'Product', 'ProductWithAttributes' ],
+				'description' => static function () {
+					return __( 'A product with variations.', 'graphql-for-ecommerce' );
+				},
+				'interfaces'  => [ 'Node', 'ProductWithAttributes' ],
 				'fields'      => self::get_fields(),
 				'connections' => self::get_connections(),
-				'resolveType' => [ Core::class, 'resolve_product_type' ],
+				'resolveType' => 'wc_graphql_resolve_product_type',
 			]
 		);
 	}
@@ -46,11 +47,15 @@ class Product_With_Variations {
 		return [
 			'id'         => [
 				'type'        => [ 'non_null' => 'ID' ],
-				'description' => __( 'Product or variation global ID', 'wp-graphql-woocommerce' ),
+				'description' => static function () {
+					return __( 'Product or variation global ID', 'graphql-for-ecommerce' );
+				},
 			],
 			'databaseId' => [
 				'type'        => [ 'non_null' => 'Int' ],
-				'description' => __( 'Product or variation ID', 'wp-graphql-woocommerce' ),
+				'description' => static function () {
+					return __( 'Product or variation ID', 'graphql-for-ecommerce' );
+				},
 			],
 		];
 	}
@@ -70,7 +75,6 @@ class Product_With_Variations {
 
 					$resolver->set_query_arg( 'post_parent', $source->ID );
 					$resolver->set_query_arg( 'post_type', 'product_variation' );
-					$resolver->set_query_arg( 'post__in', $source->variation_ids );
 
 					return $resolver->get_connection();
 				},

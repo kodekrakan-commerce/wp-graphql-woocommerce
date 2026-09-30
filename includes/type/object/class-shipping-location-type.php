@@ -24,15 +24,21 @@ class Shipping_Location_Type {
 			'ShippingLocation',
 			[
 				'eagerlyLoadType' => true,
-				'description'     => __( 'A Shipping zone object', 'wp-graphql-woocommerce' ),
+				'description'     => static function () {
+					return __( 'A Shipping zone object', 'graphql-for-ecommerce' );
+				},
 				'fields'          => [
 					'code' => [
 						'type'        => 'String',
-						'description' => __( 'The globally unique identifier for the tax rate.', 'wp-graphql-woocommerce' ),
+						'description' => static function () {
+							return __( 'The globally unique identifier for the tax rate.', 'graphql-for-ecommerce' );
+						},
 					],
 					'type' => [
 						'type'        => 'ShippingLocationTypeEnum',
-						'description' => __( 'Shipping zone location name.', 'wp-graphql-woocommerce' ),
+						'description' => static function () {
+							return __( 'Shipping zone location name.', 'graphql-for-ecommerce' );
+						},
 					],
 				],
 			]

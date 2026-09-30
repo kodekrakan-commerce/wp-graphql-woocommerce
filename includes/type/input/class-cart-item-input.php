@@ -21,27 +21,39 @@ class Cart_Item_Input {
 		register_graphql_input_type(
 			'CartItemInput',
 			[
-				'description' => __( 'Cart item quantity', 'wp-graphql-woocommerce' ),
+				'description' => static function () {
+					return __( 'Cart item quantity', 'graphql-for-ecommerce' );
+				},
 				'fields'      => [
 					'productId'   => [
 						'type'        => [ 'non_null' => 'Int' ],
-						'description' => __( 'Cart item product database ID or global ID', 'wp-graphql-woocommerce' ),
+						'description' => static function () {
+							return __( 'Cart item product database ID or global ID', 'graphql-for-ecommerce' );
+						},
 					],
 					'quantity'    => [
 						'type'        => 'Int',
-						'description' => __( 'Cart item quantity', 'wp-graphql-woocommerce' ),
+						'description' => static function () {
+							return __( 'Cart item quantity', 'graphql-for-ecommerce' );
+						},
 					],
 					'variationId' => [
 						'type'        => 'Int',
-						'description' => __( 'Cart item product variation database ID or global ID', 'wp-graphql-woocommerce' ),
+						'description' => static function () {
+							return __( 'Cart item product variation database ID or global ID', 'graphql-for-ecommerce' );
+						},
 					],
 					'variation'   => [
 						'type'        => [ 'list_of' => 'ProductAttributeInput' ],
-						'description' => __( 'Cart item product variation attributes', 'wp-graphql-woocommerce' ),
+						'description' => static function () {
+							return __( 'Cart item product variation attributes', 'graphql-for-ecommerce' );
+						},
 					],
 					'extraData'   => [
 						'type'        => 'String',
-						'description' => __( 'JSON string representation of extra cart item data', 'wp-graphql-woocommerce' ),
+						'description' => static function () {
+							return __( 'JSON string representation of extra cart item data', 'graphql-for-ecommerce' );
+						},
 					],
 				],
 			]

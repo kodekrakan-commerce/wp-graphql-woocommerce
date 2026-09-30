@@ -32,7 +32,9 @@ class Comments extends Comments_Core {
 					'connectionFields' => [
 						'averageRating' => [
 							'type'        => 'Float',
-							'description' => __( 'Average review rating for this product.', 'wp-graphql-woocommerce' ),
+							'description' => static function () {
+								return __( 'Average review rating for this product.', 'graphql-for-ecommerce' );
+							},
 							'resolve'     => static function ( $source ) {
 								if ( empty( $source['edges'] ) ) {
 									return 0;
@@ -45,7 +47,9 @@ class Comments extends Comments_Core {
 					'edgeFields'       => [
 						'rating' => [
 							'type'        => 'Float',
-							'description' => __( 'Review rating', 'wp-graphql-woocommerce' ),
+							'description' => static function () {
+								return __( 'Review rating', 'graphql-for-ecommerce' );
+							},
 							'resolve'     => static function ( $source ) {
 								$review = $source['node'];
 								// phpcs:ignore WordPress.NamingConventions.ValidVariableName.UsedPropertyNotSnakeCase
@@ -71,12 +75,14 @@ class Comments extends Comments_Core {
 			self::get_connection_config(
 				[
 					'fromType'      => 'Order',
-					'toType'        => 'Comment',
+					'toType'        => 'OrderNote',
 					'fromFieldName' => 'orderNotes',
 					'edgeFields'    => [
 						'isCustomerNote' => [
 							'type'        => 'Boolean',
-							'description' => __( 'Is this a customer note?', 'wp-graphql-woocommerce' ),
+							'description' => static function () {
+								return __( 'Is this a customer note?', 'graphql-for-ecommerce' );
+							},
 							'resolve'     => static function ( $source ) {
 								$note = $source['node'];
 								// phpcs:ignore WordPress.NamingConventions.ValidVariableName.UsedPropertyNotSnakeCase

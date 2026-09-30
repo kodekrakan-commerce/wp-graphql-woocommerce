@@ -8,8 +8,6 @@
 
 namespace WPGraphQL\WooCommerce\Utils;
 
-use WPGraphQL\WooCommerce\WooCommerce_Filters;
-
 /**
  * Class Protected_Router
  */
@@ -105,7 +103,7 @@ class Protected_Router {
 	 */
 	public function __clone() {
 		// Cloning instances of the class is forbidden.
-		_doing_it_wrong( __FUNCTION__, esc_html__( 'Protected_Router class should not be cloned.', 'wp-graphql-woocommerce' ), esc_html( WPGRAPHQL_WOOCOMMERCE_VERSION ) );
+		_doing_it_wrong( __FUNCTION__, esc_html__( 'Protected_Router class should not be cloned.', 'graphql-for-ecommerce' ), esc_html( WPGRAPHQL_WOOCOMMERCE_VERSION ) );
 	}
 
 	/**
@@ -115,7 +113,7 @@ class Protected_Router {
 	 */
 	public function __wakeup() {
 		// De-serializing instances of the class is forbidden.
-		_doing_it_wrong( __FUNCTION__, esc_html__( 'De-serializing instances of the Protected_Router class is not allowed', 'wp-graphql-woocommerce' ), esc_html( WPGRAPHQL_WOOCOMMERCE_VERSION ) );
+		_doing_it_wrong( __FUNCTION__, esc_html__( 'De-serializing instances of the Protected_Router class is not allowed', 'graphql-for-ecommerce' ), esc_html( WPGRAPHQL_WOOCOMMERCE_VERSION ) );
 	}
 
 	/**
@@ -188,19 +186,23 @@ class Protected_Router {
 	 * response instead of responding with a template from the standard WordPress Template
 	 * Loading process
 	 *
+	 * @param \WP_Query $query The WP_Query instance (passed by pre_get_posts).
+	 *
 	 * @return void
 	 */
-	public function resolve_request() {
+	public function resolve_request( $query ) {
+		// Only handle the main front-end query. Other WP_Query instances
+		// (e.g. from Elementor during init) must be ignored to avoid
+		// calling WC session methods before WooCommerce is ready.
+		if ( ! $query->is_main_query() || is_admin() ) {
+			return;
+		}
+
 		/**
 		 * Remove the resolve_request function from the pre_get_posts action
 		 * to prevent an infinite loop
 		 */
 		remove_action( 'pre_get_posts', [ $this, 'resolve_request' ], 1 );
-
-		/**
-		 * Access the $wp_query object
-		 */
-		global $wp_query;
 
 		/**
 		 * Ensure we're on the registered route for the transfer
@@ -209,10 +211,15 @@ class Protected_Router {
 			return;
 		}
 
+		// Bail if WooCommerce session is not yet initialized.
+		if ( ! function_exists( 'WC' ) || is_null( WC()->session ) ) {
+			return;
+		}
+
 		/**
 		 * Set is_home to false
 		 */
-		$wp_query->is_home = false;
+		$query->is_home = false;
 
 		/**
 		 * Process the GraphQL query Request
@@ -226,14 +233,16 @@ class Protected_Router {
 	 * @return array
 	 */
 	public static function get_nonce_names() {
-		$enabled_authorizing_url_fields = WooCommerce_Filters::enabled_authorizing_url_fields();
-		if ( empty( $enabled_authorizing_url_fields ) ) {
-			return [];
+		$enabled_authorizing_url_fields = wc_graphql_enabled_authorizing_url_fields();
+		$nonce_names                    = [];
+		if ( ! empty( $enabled_authorizing_url_fields ) ) {
+			foreach ( array_keys( $enabled_authorizing_url_fields ) as $field ) {
+				$nonce_names[ $field ] = wc_graphql_get_authorizing_url_nonce_param_name( $field );
+			}
 		}
-		$nonce_names = [];
-		foreach ( array_keys( $enabled_authorizing_url_fields ) as $field ) {
-			$nonce_names[ $field ] = WooCommerce_Filters::get_authorizing_url_nonce_param_name( $field );
-		}
+
+		// Download URL nonce is always registered.
+		$nonce_names['download_url'] = woographql_setting( 'download_url_nonce_param', '_wc_download' );
 
 		return array_filter( $nonce_names );
 	}
@@ -254,6 +263,8 @@ class Protected_Router {
 				return 'load-account_';
 			case 'add_payment_method_url':
 				return 'add-payment-method_';
+			case 'download_url':
+				return 'download_';
 			default:
 				return apply_filters( 'woographql_auth_nonce_prefix', null, $field, $this );
 		}
@@ -281,9 +292,34 @@ class Protected_Router {
 				return $account_page_url ? $account_page_url : null;
 			case 'add_payment_method_url':
 				return wc_get_account_endpoint_url( 'add-payment-method' );
+			case 'download_url':
+				return $this->get_download_target_url();
 			default:
 				return apply_filters( 'woographql_auth_target_endpoint', null, $field, $this );
 		}
+	}
+
+	/**
+	 * Resolves the download URL for the current request using the download_id and session_id.
+	 *
+	 * @return string|null
+	 */
+	private function get_download_target_url() {
+		$download_id = isset( $_REQUEST['download_id'] ) ? sanitize_text_field( wp_unslash( $_REQUEST['download_id'] ) ) : null; // phpcs:ignore WordPress.Security.NonceVerification.Recommended
+		$session_id  = isset( $_REQUEST['session_id'] ) ? absint( $_REQUEST['session_id'] ) : 0; // phpcs:ignore WordPress.Security.NonceVerification.Recommended
+
+		if ( empty( $download_id ) || empty( $session_id ) ) {
+			return null;
+		}
+
+		$downloads = wc_get_customer_available_downloads( $session_id );
+		foreach ( $downloads as $download ) {
+			if ( $download['download_id'] === $download_id ) {
+				return $download['download_url'];
+			}
+		}
+
+		return null;
 	}
 
 	/**

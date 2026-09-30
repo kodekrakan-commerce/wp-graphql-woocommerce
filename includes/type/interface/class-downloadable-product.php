@@ -8,8 +8,6 @@
 
 namespace WPGraphQL\WooCommerce\Type\WPInterface;
 
-use WPGraphQL\WooCommerce\Core_Schema_Filters as Core;
-
 /**
  * Class Downloadable_Product
  */
@@ -24,10 +22,12 @@ class Downloadable_Product {
 		register_graphql_interface_type(
 			'DownloadableProduct',
 			[
-				'description' => __( 'A downloadable product.', 'wp-graphql-woocommerce' ),
-				'interfaces'  => [ 'Node', 'Product' ],
+				'description' => static function () {
+					return __( 'A downloadable product.', 'graphql-for-ecommerce' );
+				},
+				'interfaces'  => [ 'Node' ],
 				'fields'      => self::get_fields(),
-				'resolveType' => [ Core::class, 'resolve_product_type' ],
+				'resolveType' => 'wc_graphql_resolve_product_type',
 			]
 		);
 	}
@@ -41,27 +41,39 @@ class Downloadable_Product {
 		return [
 			'id'             => [
 				'type'        => [ 'non_null' => 'ID' ],
-				'description' => __( 'Product or variation global ID', 'wp-graphql-woocommerce' ),
+				'description' => static function () {
+					return __( 'Product or variation global ID', 'graphql-for-ecommerce' );
+				},
 			],
 			'databaseId'     => [
 				'type'        => [ 'non_null' => 'Int' ],
-				'description' => __( 'Product or variation ID', 'wp-graphql-woocommerce' ),
+				'description' => static function () {
+					return __( 'Product or variation ID', 'graphql-for-ecommerce' );
+				},
 			],
 			'downloadExpiry' => [
 				'type'        => 'Int',
-				'description' => __( 'Download expiry', 'wp-graphql-woocommerce' ),
+				'description' => static function () {
+					return __( 'Download expiry', 'graphql-for-ecommerce' );
+				},
 			],
 			'downloadable'   => [
 				'type'        => 'Boolean',
-				'description' => __( 'Is downloadable?', 'wp-graphql-woocommerce' ),
+				'description' => static function () {
+					return __( 'Is downloadable?', 'graphql-for-ecommerce' );
+				},
 			],
 			'downloadLimit'  => [
 				'type'        => 'Int',
-				'description' => __( 'Download limit', 'wp-graphql-woocommerce' ),
+				'description' => static function () {
+					return __( 'Download limit', 'graphql-for-ecommerce' );
+				},
 			],
 			'downloads'      => [
 				'type'        => [ 'list_of' => 'ProductDownload' ],
-				'description' => __( 'Product downloads', 'wp-graphql-woocommerce' ),
+				'description' => static function () {
+					return __( 'Product downloads', 'graphql-for-ecommerce' );
+				},
 			],
 		];
 	}

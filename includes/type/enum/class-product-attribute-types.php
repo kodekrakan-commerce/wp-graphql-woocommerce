@@ -21,15 +21,21 @@ class Product_Attribute_Types {
 		register_graphql_enum_type(
 			'ProductAttributeTypesEnum',
 			[
-				'description' => __( 'Product attribute type enumeration', 'wp-graphql-woocommerce' ),
+				'description' => static function () {
+					return __( 'Product attribute type enumeration', 'graphql-for-ecommerce' );
+				},
 				'values'      => [
 					'LOCAL'  => [
 						'value'       => 'local',
-						'description' => __( 'A local product attribute', 'wp-graphql-woocommerce' ),
+						'description' => static function () {
+							return __( 'A local product attribute', 'graphql-for-ecommerce' );
+						},
 					],
 					'GLOBAL' => [
 						'value'       => 'global',
-						'description' => __( 'A global product attribute', 'wp-graphql-woocommerce' ),
+						'description' => static function () {
+							return __( 'A global product attribute', 'graphql-for-ecommerce' );
+						},
 					],
 				],
 			]

@@ -8,7 +8,7 @@
 
 namespace WPGraphQL\WooCommerce\Type\WPEnum;
 
-use WPGraphQL\Type\WPEnumType;
+use WPGraphQL\WooCommerce\Utils\Label;
 
 /**
  * Class Tax_Class
@@ -23,23 +23,33 @@ class Tax_Class {
 		$values = [
 			'INHERIT_CART' => [
 				'value'       => 'inherit',
-				'description' => __( 'Inherits Tax class from cart', 'wp-graphql-woocommerce' ),
+				'description' => static function () {
+					return __( 'Inherits Tax class from cart', 'graphql-for-ecommerce' );
+				},
 			],
 			'STANDARD'     => [
 				'value'       => '',
-				'description' => __( 'Standard Tax rate', 'wp-graphql-woocommerce' ),
+				'description' => static function () {
+					return __( 'Standard Tax rate', 'graphql-for-ecommerce' );
+				},
 			],
 		];
 
 		$classes = \WC_Tax::get_tax_classes();
 		foreach ( $classes as $class ) {
-			$values[ WPEnumType::get_safe_name( $class ) ] = [ 'value' => sanitize_title( $class ) ];
+			$safe_name = Label::get_safe_enum_name( $class );
+			if ( null === $safe_name ) {
+				continue;
+			}
+			$values[ $safe_name ] = [ 'value' => sanitize_title( $class ) ];
 		}
 
 		register_graphql_enum_type(
 			'TaxClassEnum',
 			[
-				'description' => __( 'Tax class enumeration', 'wp-graphql-woocommerce' ),
+				'description' => static function () {
+					return __( 'Tax class enumeration', 'graphql-for-ecommerce' );
+				},
 				'values'      => $values,
 			]
 		);

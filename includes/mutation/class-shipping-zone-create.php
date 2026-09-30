@@ -43,11 +43,15 @@ class Shipping_Zone_Create {
 		return [
 			'name'  => [
 				'type'        => [ 'non_null' => 'String' ],
-				'description' => __( 'Name of the shipping zone.', 'wp-graphql-woocommerce' ),
+				'description' => static function () {
+					return __( 'Name of the shipping zone.', 'graphql-for-ecommerce' );
+				},
 			],
 			'order' => [
 				'type'        => 'Int',
-				'description' => __( 'Order of the shipping zone.', 'wp-graphql-woocommerce' ),
+				'description' => static function () {
+					return __( 'Order of the shipping zone.', 'graphql-for-ecommerce' );
+				},
 			],
 		];
 	}
@@ -76,11 +80,11 @@ class Shipping_Zone_Create {
 	public static function mutate_and_get_payload() {
 		return static function ( $input, AppContext $context, ResolveInfo $info ) {
 			if ( ! \wc_shipping_enabled() ) {
-				throw new UserError( __( 'Shipping is disabled.', 'wp-graphql-woocommerce' ), 404 );
+				throw new UserError( __( 'Shipping is disabled.', 'graphql-for-ecommerce' ), 404 );
 			}
 
 			if ( ! \wc_rest_check_manager_permissions( 'settings', 'edit' ) ) {
-				throw new UserError( __( 'Sorry, you are not allowed to create shipping zones.', 'wp-graphql-woocommerce' ), \rest_authorization_required_code() );
+				throw new UserError( __( 'Sorry, you are not allowed to create shipping zones.', 'graphql-for-ecommerce' ), \rest_authorization_required_code() );
 			}
 
 			$zone = new \WC_Shipping_Zone( null );
@@ -101,7 +105,7 @@ class Shipping_Zone_Create {
 			$zone_id = $zone->save();
 
 			if ( 0 === $zone->get_id() ) {
-				throw new UserError( __( 'Failed to create shipping zone.', 'wp-graphql-woocommerce' ) );
+				throw new UserError( __( 'Failed to create shipping zone.', 'graphql-for-ecommerce' ) );
 			}
 
 			return [ 'zone_id' => $zone_id ];

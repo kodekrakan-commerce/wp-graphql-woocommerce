@@ -43,7 +43,9 @@ class Session_Update {
 		return [
 			'sessionData' => [
 				'type'        => [ 'list_of' => 'MetaDataInput' ],
-				'description' => __( 'Data to be persisted in the session.', 'wp-graphql-woocommerce' ),
+				'description' => static function () {
+					return __( 'Data to be persisted in the session.', 'graphql-for-ecommerce' );
+				},
 			],
 		];
 	}
@@ -97,7 +99,7 @@ class Session_Update {
 
 			// Guard against missing input.
 			if ( empty( $input['sessionData'] ) ) {
-				throw new UserError( __( 'No session data provided', 'wp-graphql-woocommerce' ) );
+				throw new UserError( __( 'No session data provided', 'graphql-for-ecommerce' ) );
 			}
 			$session_data_input = $input['sessionData'];
 

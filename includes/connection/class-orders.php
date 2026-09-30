@@ -12,6 +12,7 @@ namespace WPGraphQL\WooCommerce\Connection;
 use GraphQL\Type\Definition\ResolveInfo;
 use WPGraphQL\AppContext;
 use WPGraphQL\WooCommerce\Data\Connection\Order_Connection_Resolver;
+use WPGraphQL\WooCommerce\Model\Customer;
 
 /**
  * Class - Orders
@@ -94,30 +95,199 @@ class Orders {
 	}
 
 	/**
+	 * Given an array of $args, this returns the connection config, merging the provided args
+	 * with the defaults.
+	 *
+	 * @param array  $args       Connection configuration.
+	 * @param string $post_type  Connection resolving post-type.
+	 *
+	 * @return array
+	 */
+	public static function get_connection_config( $args = [], $post_type = 'shop_order' ): array {
+		// Get Post type object for use in connection resolve function.
+		/**
+		 * Get connection post type.
+		 *
+		 * @var \WP_Post_Type $post_object
+		 */
+		$post_object = get_post_type_object( $post_type );
+
+		return array_merge(
+			[
+				'fromType'       => 'RootQuery',
+				'toType'         => 'Order',
+				'fromFieldName'  => 'orders',
+				'connectionArgs' => self::get_connection_args( 'private' ),
+				'resolve'        => static function ( $source, array $args, AppContext $context, ResolveInfo $info ) use ( $post_object ) {
+					// Check if user shop manager.
+					$not_manager = ! current_user_can( $post_object->cap->edit_posts );
+
+					// Remove any where arguments that require querying user to have "shop manager" role.
+					if ( $not_manager && 'shop_order' === $post_object->name && isset( $args['where'] ) ) {
+						$args['where'] = \array_intersect_key( $args['where'], self::get_connection_args( 'public' ) );
+					}
+
+					// Initialize connection resolver.
+					$resolver = new Order_Connection_Resolver( $source, $args, $context, $info, $post_object->name );
+
+					/**
+					 * If not shop manager, restrict results to orders/refunds owned by querying user
+					 * and return the connection.
+					 */
+					if ( $not_manager ) {
+						return 'shop_order_refund' === $post_object->name
+							? self::get_customer_refund_connection( $resolver, new Customer( 'session', ! is_user_logged_in() ) )
+							: self::get_customer_order_connection( $resolver, new Customer( 'session', ! is_user_logged_in() ) );
+					}
+
+					return $resolver->get_connection();
+				},
+			],
+			$args
+		);
+	}
+
+	/**
+	 * Returns array of where args.
+	 *
+	 * @param string $access Connection argument access-level.
+	 * @return array
+	 */
+	public static function get_connection_args( $access = 'public' ): array {
+		switch ( $access ) {
+			case 'private':
+				return array_merge(
+					get_wc_cpt_connection_args(),
+					[
+						'statuses'     => [
+							'type'        => [ 'list_of' => 'OrderStatusEnum' ],
+							'description' => static function () {
+								return __( 'Limit result set to orders assigned a specific status.', 'graphql-for-ecommerce' );
+							},
+						],
+						'customerId'   => [
+							'type'        => 'Int',
+							'description' => static function () {
+								return __( 'Limit result set to orders assigned a specific customer.', 'graphql-for-ecommerce' );
+							},
+						],
+						'customersIn'  => [
+							'type'        => [ 'list_of' => 'Int' ],
+							'description' => static function () {
+								return __( 'Limit result set to orders assigned a specific group of customers.', 'graphql-for-ecommerce' );
+							},
+						],
+						'productId'    => [
+							'type'        => 'Int',
+							'description' => static function () {
+								return __( 'Limit result set to orders assigned a specific product.', 'graphql-for-ecommerce' );
+							},
+						],
+						'orderby'      => [
+							'type'        => [ 'list_of' => 'OrdersOrderbyInput' ],
+							'description' => static function () {
+								return __( 'What paramater to use to order the objects by.', 'graphql-for-ecommerce' );
+							},
+						],
+						'billingEmail' => [
+							'type'        => 'String',
+							'description' => static function () {
+								return __( 'Limit result set to orders assigned a specific billing email.', 'graphql-for-ecommerce' );
+							},
+						],
+					]
+				);
+
+			case 'public':
+			default:
+				return array_merge(
+					get_wc_cpt_connection_args(),
+					[
+						'statuses'  => [
+							'type'        => [ 'list_of' => 'OrderStatusEnum' ],
+							'description' => static function () {
+								return __( 'Limit result set to orders assigned a specific status.', 'graphql-for-ecommerce' );
+							},
+						],
+						'productId' => [
+							'type'        => 'Int',
+							'description' => static function () {
+								return __( 'Limit result set to orders assigned a specific product.', 'graphql-for-ecommerce' );
+							},
+						],
+						'orderby'   => [
+							'type'        => [ 'list_of' => 'OrdersOrderbyInput' ],
+							'description' => static function () {
+								return __( 'What paramater to use to order the objects by.', 'graphql-for-ecommerce' );
+							},
+						],
+						'search'    => [
+							'type'        => 'String',
+							'description' => static function () {
+								return __( 'Limit results to those matching a string.', 'graphql-for-ecommerce' );
+							},
+						],
+						'dateQuery' => [
+							'type'        => 'DateQueryInput',
+							'description' => static function () {
+								return __( 'Filter the connection based on dates.', 'graphql-for-ecommerce' );
+							},
+						],
+					]
+				);
+		}//end switch
+	}
+
+	/**
+	 * Returns array of where args.
+	 *
+	 * @return array
+	 */
+	public static function get_refund_connection_args(): array {
+		return array_merge(
+			get_wc_cpt_connection_args(),
+			[
+				'statuses' => [
+					'type'        => [ 'list_of' => 'String' ],
+					'description' => static function () {
+						return __( 'Limit result set to refunds assigned a specific status.', 'graphql-for-ecommerce' );
+					},
+				],
+				'orderIn'  => [
+					'type'        => [ 'list_of' => 'Int' ],
+					'description' => static function () {
+						return __( 'Limit result set to refunds from a specific group of order IDs.', 'graphql-for-ecommerce' );
+					},
+				],
+			]
+		);
+	}
+
+	/**
 	 * Returns order connection filter by customer.
 	 *
 	 * @param \WPGraphQL\WooCommerce\Data\Connection\Order_Connection_Resolver $resolver  Connection resolver.
-	 * @param \WC_Customer                                                     $customer  Customer object of querying user.
+	 * @param \WPGraphQL\WooCommerce\Model\Customer                            $customer  Customer object of querying user.
 	 *
 	 * @return array|\GraphQL\Deferred
 	 */
-	private static function get_customer_order_connection( $resolver, $customer ) {
+	private static function get_customer_order_connection( $resolver, Customer $customer ) {
 		// If not "billing email" or "ID" set bail early by returning an empty connection.
-		if ( empty( $customer->get_billing_email() ) && empty( $customer->get_id() ) ) {
+		if ( empty( $customer->billing['email'] ) && ( empty( absint( $customer->ID ) ) ) ) {
 			return [
 				'nodes' => [],
 				'edges' => [],
 			];
 		}
 
-		$customer_id   = $customer->get_id();
-		$billing_email = $customer->get_billing_email();
-		if ( ! empty( $customer_id ) ) {
-			$resolver->set_query_arg( 'customer_id', $customer_id );
-			$resolver->set_should_execute( \WC()->customer->get_id() === $customer_id );
-		} elseif ( ! empty( $billing_email ) ) {
-			$resolver->set_query_arg( 'billing_email', $billing_email );
-			$resolver->set_should_execute( \WC()->customer->get_billing_email() === $billing_email );
+		$target_customer_id  = absint( $customer->ID );
+		$current_customer_id = absint( \WC()->customer->get_id() );
+		if ( ! empty( $target_customer_id ) ) {
+			$resolver->set_query_arg( 'customer_id', $target_customer_id );
+			$resolver->set_should_execute( $current_customer_id === $target_customer_id );
+		} elseif ( ! empty( $customer->billing['email'] ) ) {
+			$resolver->set_query_arg( 'billing_email', $customer->billing['email'] );
+			$resolver->set_should_execute( \WC()->customer->get_billing_email() === $customer->billing['email'] );
 		}
 
 		return $resolver->get_connection();
@@ -127,24 +297,24 @@ class Orders {
 	 * Returns refund connection filter by customer.
 	 *
 	 * @param \WPGraphQL\WooCommerce\Data\Connection\Order_Connection_Resolver $resolver  Connection resolver.
-	 * @param \WC_Customer                                                     $customer  Customer object of querying user.
+	 * @param \WPGraphQL\WooCommerce\Model\Customer                            $customer  Customer object of querying user.
 	 *
 	 * @return array|\GraphQL\Deferred
 	 */
-	private static function get_customer_refund_connection( $resolver, $customer ) {
+	private static function get_customer_refund_connection( Order_Connection_Resolver $resolver, Customer $customer ) {
 		$empty_results = [
 			'pageInfo' => null,
 			'nodes'    => [],
 			'edges'    => [],
 		];
 		// If not "billing email" or "ID" set bail early by returning an empty connection.
-		if ( empty( $customer->get_billing_email() ) && empty( $customer->get_id() ) ) {
+		if ( empty( $customer->billing['email'] ) && empty( $customer->ID ) ) {
 			return $empty_results;
 		}
 
 		$order_ids     = [];
-		$customer_id   = $customer->get_id();
-		$billing_email = $customer->get_billing_email();
+		$customer_id   = $customer->ID;
+		$billing_email = $customer->billing['email'];
 		if ( ! empty( $customer_id ) ) {
 			$args = [
 				'customer_id' => $customer_id,
@@ -189,145 +359,5 @@ class Orders {
 
 		// Execute and return connection.
 		return $resolver->get_connection();
-	}
-
-	/**
-	 * Given an array of $args, this returns the connection config, merging the provided args
-	 * with the defaults.
-	 *
-	 * @param array  $args       Connection configuration.
-	 * @param string $post_type  Connection resolving post-type.
-	 *
-	 * @return array
-	 */
-	public static function get_connection_config( $args = [], $post_type = 'shop_order' ): array {
-		// Get Post type object for use in connection resolve function.
-		/**
-		 * Get connection post type.
-		 *
-		 * @var \WP_Post_Type $post_object
-		 */
-		$post_object = get_post_type_object( $post_type );
-
-		return array_merge(
-			[
-				'fromType'       => 'RootQuery',
-				'toType'         => 'Order',
-				'fromFieldName'  => 'orders',
-				'connectionArgs' => self::get_connection_args( 'private' ),
-				'resolve'        => static function ( $source, array $args, AppContext $context, ResolveInfo $info ) use ( $post_object ) {
-					// Check if user shop manager.
-					$not_manager = ! current_user_can( $post_object->cap->edit_posts );
-
-					// Remove any arguments that require querying user to have "shop manager" role.
-					$args = $not_manager && 'shop_order' === $post_object->name
-						? \array_intersect_key( $args, array_keys( self::get_connection_args( 'public' ) ) )
-						: $args;
-
-					// Initialize connection resolver.
-					$resolver = new Order_Connection_Resolver( $source, $args, $context, $info, $post_object->name );
-
-					/**
-					 * If not shop manager, restrict results to orders/refunds owned by querying user
-					 * and return the connection.
-					 */
-					if ( $not_manager ) {
-						return 'shop_order_refund' === $post_object->name
-							? self::get_customer_refund_connection( $resolver, \WC()->customer )
-							: self::get_customer_order_connection( $resolver, \WC()->customer );
-					}
-
-					return $resolver->get_connection();
-				},
-			],
-			$args
-		);
-	}
-
-	/**
-	 * Returns array of where args.
-	 *
-	 * @param string $access Connection argument access-level.
-	 * @return array
-	 */
-	public static function get_connection_args( $access = 'public' ): array {
-		switch ( $access ) {
-			case 'private':
-				return array_merge(
-					get_wc_cpt_connection_args(),
-					[
-						'statuses'     => [
-							'type'        => [ 'list_of' => 'OrderStatusEnum' ],
-							'description' => __( 'Limit result set to orders assigned a specific status.', 'wp-graphql-woocommerce' ),
-						],
-						'customerId'   => [
-							'type'        => 'Int',
-							'description' => __( 'Limit result set to orders assigned a specific customer.', 'wp-graphql-woocommerce' ),
-						],
-						'customersIn'  => [
-							'type'        => [ 'list_of' => 'Int' ],
-							'description' => __( 'Limit result set to orders assigned a specific group of customers.', 'wp-graphql-woocommerce' ),
-						],
-						'productId'    => [
-							'type'        => 'Int',
-							'description' => __( 'Limit result set to orders assigned a specific product.', 'wp-graphql-woocommerce' ),
-						],
-						'orderby'      => [
-							'type'        => [ 'list_of' => 'OrdersOrderbyInput' ],
-							'description' => __( 'What paramater to use to order the objects by.', 'wp-graphql-woocommerce' ),
-						],
-						'billingEmail' => [
-							'type'        => 'String',
-							'description' => __( 'Limit result set to orders assigned a specific billing email.', 'wp-graphql-woocommerce' ),
-						],
-					]
-				);
-
-			case 'public':
-			default:
-				return [
-					'statuses'  => [
-						'type'        => [ 'list_of' => 'OrderStatusEnum' ],
-						'description' => __( 'Limit result set to orders assigned a specific status.', 'wp-graphql-woocommerce' ),
-					],
-					'productId' => [
-						'type'        => 'Int',
-						'description' => __( 'Limit result set to orders assigned a specific product.', 'wp-graphql-woocommerce' ),
-					],
-					'orderby'   => [
-						'type'        => [ 'list_of' => 'OrdersOrderbyInput' ],
-						'description' => __( 'What paramater to use to order the objects by.', 'wp-graphql-woocommerce' ),
-					],
-					'search'    => [
-						'type'        => 'String',
-						'description' => __( 'Limit results to those matching a string.', 'wp-graphql-woocommerce' ),
-					],
-					'dateQuery' => [
-						'type'        => 'DateQueryInput',
-						'description' => __( 'Filter the connection based on dates.', 'wp-graphql-woocommerce' ),
-					],
-				];
-		}//end switch
-	}
-
-	/**
-	 * Returns array of where args.
-	 *
-	 * @return array
-	 */
-	public static function get_refund_connection_args(): array {
-		return array_merge(
-			get_wc_cpt_connection_args(),
-			[
-				'statuses' => [
-					'type'        => [ 'list_of' => 'String' ],
-					'description' => __( 'Limit result set to refunds assigned a specific status.', 'wp-graphql-woocommerce' ),
-				],
-				'orderIn'  => [
-					'type'        => [ 'list_of' => 'Int' ],
-					'description' => __( 'Limit result set to refunds from a specific group of order IDs.', 'wp-graphql-woocommerce' ),
-				],
-			]
-		);
 	}
 }

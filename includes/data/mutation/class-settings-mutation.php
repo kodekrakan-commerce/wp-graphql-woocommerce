@@ -40,7 +40,7 @@ class Settings_Mutation {
 		if ( array_key_exists( $value, $setting['options'] ) ) {
 			return $value;
 		} else {
-			throw new UserError( __( 'An invalid setting value was passed.', 'wp-graphql-woocommerce' ), 400 );
+			throw new UserError( __( 'An invalid setting value was passed.', 'graphql-for-ecommerce' ), 400 );
 		}
 	}
 
@@ -60,7 +60,7 @@ class Settings_Mutation {
 		}
 
 		if ( ! is_array( $values ) ) {
-			throw new UserError( __( 'An invalid setting value was passed.', 'wp-graphql-woocommerce' ), 400 );
+			throw new UserError( __( 'An invalid setting value was passed.', 'graphql-for-ecommerce' ), 400 );
 		}
 
 		$final_values = [];
@@ -85,7 +85,7 @@ class Settings_Mutation {
 	 */
 	public static function validate_setting_image_width_field( $values, $setting ) {
 		if ( ! is_array( $values ) ) {
-			throw new UserError( __( 'An invalid setting value was passed.', 'wp-graphql-woocommerce' ), 400 );
+			throw new UserError( __( 'An invalid setting value was passed.', 'graphql-for-ecommerce' ), 400 );
 		}
 
 		$current = $setting['value'];
@@ -125,14 +125,14 @@ class Settings_Mutation {
 	 *
 	 * @return string
 	 */
-	public function validate_setting_checkbox_field( $value, $setting ) {
+	public static function validate_setting_checkbox_field( $value, $setting ) {
 		if ( in_array( $value, [ 'yes', 'no' ], true ) ) {
 			return $value;
 		} elseif ( empty( $value ) ) {
 			$value = isset( $setting['default'] ) ? $setting['default'] : 'no';
 			return $value;
 		} else {
-			throw new UserError( __( 'An invalid setting value was passed.', 'wp-graphql-woocommerce' ), 400 );
+			throw new UserError( __( 'An invalid setting value was passed.', 'graphql-for-ecommerce' ), 400 );
 		}
 	}
 

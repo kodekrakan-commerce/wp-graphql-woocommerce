@@ -1,6 +1,6 @@
 <?php
 /**
- * WPInterface Type - Payment_Token
+ * WPInterface Type - Payment_Token_Interface
  *
  * @package WPGraphQL\WooCommerce\Type\WPInterface
  * @since   0.10.1
@@ -8,13 +8,12 @@
 
 namespace WPGraphQL\WooCommerce\Type\WPInterface;
 
-use GraphQL\Error\UserError;
 use GraphQLRelay\Relay;
 
 /**
- * Class Payment_Token
+ * Class Payment_Token_Interface
  */
-class Payment_Token {
+class Payment_Token_Interface {
 	/**
 	 * Registers the "PaymentToken" interface.
 	 *
@@ -22,9 +21,11 @@ class Payment_Token {
 	 */
 	public static function register_interface() {
 		register_graphql_interface_type(
-			'PaymentToken',
+			'PaymentTokenInterface',
 			[
-				'description' => __( 'Payment token object', 'wp-graphql-woocommerce' ),
+				'description' => static function () {
+					return __( 'Payment token object', 'graphql-for-ecommerce' );
+				},
 				'interfaces'  => [ 'Node' ],
 				'fields'      => self::get_fields(),
 				'resolveType' => static function ( $value ) {
@@ -36,13 +37,7 @@ class Payment_Token {
 						case 'eCheck':
 							return $type_registry->get_type( 'PaymentTokenECheck' );
 						default:
-							throw new UserError(
-								sprintf(
-									/* translators: %s: Payment token type */
-									__( 'The "%s" token type is not supported by the core WPGraphQL for WooCommerce (WooGraphQL) schema.', 'wp-graphql-woocommerce' ),
-									$type
-								)
-							);
+							return $type_registry->get_type( 'PaymentToken' );
 					}
 				},
 			]
@@ -60,36 +55,51 @@ class Payment_Token {
 			[
 				'id'        => [
 					'type'        => [ 'non_null' => 'ID' ],
-					'description' => __( 'Token ID unique identifier', 'wp-graphql-woocommerce' ),
+					'description' => static function () {
+						return __( 'Token ID unique identifier', 'graphql-for-ecommerce' );
+					},
 					'resolve'     => static function ( $source ) {
 						return ! empty( $source->get_id() ) ? Relay::toGlobalId( 'token', $source->get_id() ) : null;
 					},
 				],
 				'tokenId'   => [
 					'type'        => [ 'non_null' => 'Integer' ],
-					'description' => __( 'Token database ID.', 'wp-graphql-woocommerce' ),
+					'description' => static function () {
+						return __( 'Token database ID.', 'graphql-for-ecommerce' );
+					},
 					'resolve'     => static function ( $source ) {
 						return ! empty( $source->get_id() ) ? $source->get_id() : null;
 					},
 				],
 				'type'      => [
 					'type'        => [ 'non_null' => 'String' ],
-					'description' => __( 'Token type', 'wp-graphql-woocommerce' ),
+					'description' => static function () {
+						return __( 'Token type', 'graphql-for-ecommerce' );
+					},
 					'resolve'     => static function ( $source ) {
 						return ! empty( $source->get_type() ) ? $source->get_type() : null;
 					},
 				],
 				'gateway'   => [
 					'type'        => 'PaymentGateway',
-					'description' => __( 'Token payment gateway', 'wp-graphql-woocommerce' ),
+					'description' => static function () {
+						return __( 'Token payment gateway', 'graphql-for-ecommerce' );
+					},
 					'resolve'     => static function ( $source ) {
+						$gateways   = \WC()->payment_gateways()->payment_gateways();
 						$gateway_id = $source->get_gateway_id();
+						if ( isset( $gateways[ $gateway_id ] ) ) {
+							return $gateways[ $gateway_id ];
+						}
+
 						return null;
 					},
 				],
 				'isDefault' => [
 					'type'        => 'Boolean',
-					'description' => __( 'Is token connected to user\'s preferred payment method', 'wp-graphql-woocommerce' ),
+					'description' => static function () {
+						return __( 'Is token connected to user\'s preferred payment method', 'graphql-for-ecommerce' );
+					},
 					'resolve'     => static function ( $source ) {
 						return ! is_null( $source->is_default() ) ? $source->is_default() : false;
 					},

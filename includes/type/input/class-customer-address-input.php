@@ -21,55 +21,81 @@ class Customer_Address_Input {
 		register_graphql_input_type(
 			'CustomerAddressInput',
 			[
-				'description' => __( 'Customer address information', 'wp-graphql-woocommerce' ),
+				'description' => static function () {
+					return __( 'Customer address information', 'graphql-for-ecommerce' );
+				},
 				'fields'      => [
 					'firstName' => [
 						'type'        => 'String',
-						'description' => __( 'First name', 'wp-graphql-woocommerce' ),
+						'description' => static function () {
+							return __( 'First name', 'graphql-for-ecommerce' );
+						},
 					],
 					'lastName'  => [
 						'type'        => 'String',
-						'description' => __( 'Last name', 'wp-graphql-woocommerce' ),
+						'description' => static function () {
+							return __( 'Last name', 'graphql-for-ecommerce' );
+						},
 					],
 					'company'   => [
 						'type'        => 'String',
-						'description' => __( 'Company', 'wp-graphql-woocommerce' ),
+						'description' => static function () {
+							return __( 'Company', 'graphql-for-ecommerce' );
+						},
 					],
 					'address1'  => [
 						'type'        => 'String',
-						'description' => __( 'Address 1', 'wp-graphql-woocommerce' ),
+						'description' => static function () {
+							return __( 'Address 1', 'graphql-for-ecommerce' );
+						},
 					],
 					'address2'  => [
 						'type'        => 'String',
-						'description' => __( 'Address 2', 'wp-graphql-woocommerce' ),
+						'description' => static function () {
+							return __( 'Address 2', 'graphql-for-ecommerce' );
+						},
 					],
 					'city'      => [
 						'type'        => 'String',
-						'description' => __( 'City', 'wp-graphql-woocommerce' ),
+						'description' => static function () {
+							return __( 'City', 'graphql-for-ecommerce' );
+						},
 					],
 					'state'     => [
 						'type'        => 'String',
-						'description' => __( 'State', 'wp-graphql-woocommerce' ),
+						'description' => static function () {
+							return __( 'State', 'graphql-for-ecommerce' );
+						},
 					],
 					'postcode'  => [
 						'type'        => 'String',
-						'description' => __( 'Zip Postal Code', 'wp-graphql-woocommerce' ),
+						'description' => static function () {
+							return __( 'Zip Postal Code', 'graphql-for-ecommerce' );
+						},
 					],
 					'country'   => [
 						'type'        => 'CountriesEnum',
-						'description' => __( 'Country', 'wp-graphql-woocommerce' ),
+						'description' => static function () {
+							return __( 'Country', 'graphql-for-ecommerce' );
+						},
 					],
 					'email'     => [
 						'type'        => 'String',
-						'description' => __( 'E-mail', 'wp-graphql-woocommerce' ),
+						'description' => static function () {
+							return __( 'E-mail', 'graphql-for-ecommerce' );
+						},
 					],
 					'phone'     => [
 						'type'        => 'String',
-						'description' => __( 'Phone', 'wp-graphql-woocommerce' ),
+						'description' => static function () {
+							return __( 'Phone', 'graphql-for-ecommerce' );
+						},
 					],
 					'overwrite' => [
 						'type'        => 'Boolean',
-						'description' => __( 'Clear old address data', 'wp-graphql-woocommerce' ),
+						'description' => static function () {
+							return __( 'Clear old address data', 'graphql-for-ecommerce' );
+						},
 					],
 				],
 			]

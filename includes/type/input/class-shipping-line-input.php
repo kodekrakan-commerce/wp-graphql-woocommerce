@@ -21,31 +21,45 @@ class Shipping_Line_Input {
 		register_graphql_input_type(
 			'ShippingLineInput',
 			[
-				'description' => __( 'Shipping lines data.', 'wp-graphql-woocommerce' ),
+				'description' => static function () {
+					return __( 'Shipping lines data.', 'graphql-for-ecommerce' );
+				},
 				'fields'      => [
 					'id'          => [
 						'type'        => 'ID',
-						'description' => __( 'Shipping Line ID', 'wp-graphql-woocommerce' ),
+						'description' => static function () {
+							return __( 'Shipping Line ID', 'graphql-for-ecommerce' );
+						},
 					],
 					'methodTitle' => [
 						'type'        => [ 'non_null' => 'String' ],
-						'description' => __( 'Shipping method name.', 'wp-graphql-woocommerce' ),
+						'description' => static function () {
+							return __( 'Shipping method name.', 'graphql-for-ecommerce' );
+						},
 					],
 					'methodId'    => [
 						'type'        => [ 'non_null' => 'String' ],
-						'description' => __( 'Shipping method ID.', 'wp-graphql-woocommerce' ),
+						'description' => static function () {
+							return __( 'Shipping method ID.', 'graphql-for-ecommerce' );
+						},
 					],
 					'instanceId'  => [
 						'type'        => 'String',
-						'description' => __( 'Shipping instance ID.', 'wp-graphql-woocommerce' ),
+						'description' => static function () {
+							return __( 'Shipping instance ID.', 'graphql-for-ecommerce' );
+						},
 					],
 					'total'       => [
 						'type'        => [ 'non_null' => 'String' ],
-						'description' => __( 'Line total (after discounts).', 'wp-graphql-woocommerce' ),
+						'description' => static function () {
+							return __( 'Line total (after discounts).', 'graphql-for-ecommerce' );
+						},
 					],
 					'metaData'    => [
 						'type'        => [ 'list_of' => 'MetaDataInput' ],
-						'description' => __( 'Meta data.', 'wp-graphql-woocommerce' ),
+						'description' => static function () {
+							return __( 'Meta data.', 'graphql-for-ecommerce' );
+						},
 					],
 				],
 			]

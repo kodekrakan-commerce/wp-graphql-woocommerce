@@ -206,7 +206,7 @@ class Order_Connection_Resolver extends AbstractConnectionResolver {
 		$query      = new \WC_Order_Query( $query_args );
 
 		if ( true === $query->get( 'suppress_filters', false ) ) {
-			throw new InvariantViolation( __( 'WC_Order_Query has been modified by a plugin or theme to suppress_filters, which will cause issues with WPGraphQL Execution. If you need to suppress filters for a specific reason within GraphQL, consider registering a custom field to the WPGraphQL Schema with a custom resolver.', 'wp-graphql-woocommerce' ) );
+			throw new InvariantViolation( __( 'WC_Order_Query has been modified by a plugin or theme to suppress_filters, which will cause issues with WPGraphQL Execution. If you need to suppress filters for a specific reason within GraphQL, consider registering a custom field to the WPGraphQL Schema with a custom resolver.', 'graphql-for-ecommerce' ) );
 		}
 
 		return $query;
@@ -283,11 +283,8 @@ class Order_Connection_Resolver extends AbstractConnectionResolver {
 		}
 
 		if ( ! empty( $where_args['statuses'] ) ) {
-			if ( 1 === count( $where_args ) ) {
-				$args['status'] = $where_args['statuses'][0];
-			} else {
-				$args['status'] = $where_args['statuses'];
-			}
+			$single_status  = 1 === count( $where_args['statuses'] );
+			$args['status'] = $single_status ? $where_args['statuses'][0] : $where_args['statuses'];
 		}
 
 		if ( ! empty( $where_args['customerId'] ) ) {

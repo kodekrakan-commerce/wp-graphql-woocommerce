@@ -42,7 +42,9 @@ class Cart_Apply_Coupon {
 		return [
 			'code' => [
 				'type'        => [ 'non_null' => 'String' ],
-				'description' => __( 'Code of coupon being applied', 'wp-graphql-woocommerce' ),
+				'description' => static function () {
+					return __( 'Code of coupon being applied', 'graphql-for-ecommerce' );
+				},
 			],
 		];
 	}
@@ -94,7 +96,7 @@ class Cart_Apply_Coupon {
 			}
 
 			// Throw for unknown failure.
-			throw new UserError( __( 'Failed to apply coupon. Check for an individual-use coupon on cart.', 'wp-graphql-woocommerce' ) );
+			throw new UserError( __( 'Failed to apply coupon. Check for an individual-use coupon on cart.', 'graphql-for-ecommerce' ) );
 		};
 	}
 }

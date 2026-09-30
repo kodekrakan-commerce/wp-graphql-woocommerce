@@ -49,19 +49,33 @@ class Customer_Register {
 			[
 				'billing'               => [
 					'type'        => 'CustomerAddressInput',
-					'description' => __( 'Customer billing information', 'wp-graphql-woocommerce' ),
+					'description' => static function () {
+						return __( 'Customer billing information', 'graphql-for-ecommerce' );
+					},
 				],
 				'shipping'              => [
 					'type'        => 'CustomerAddressInput',
-					'description' => __( 'Customer shipping address', 'wp-graphql-woocommerce' ),
+					'description' => static function () {
+						return __( 'Customer shipping address', 'graphql-for-ecommerce' );
+					},
 				],
 				'shippingSameAsBilling' => [
 					'type'        => 'Boolean',
-					'description' => __( 'Customer shipping is identical to billing address', 'wp-graphql-woocommerce' ),
+					'description' => static function () {
+						return __( 'Customer shipping is identical to billing address', 'graphql-for-ecommerce' );
+					},
 				],
 				'metaData'              => [
-					'description' => __( 'Meta data.', 'wp-graphql-woocommerce' ),
+					'description' => static function () {
+						return __( 'Meta data.', 'graphql-for-ecommerce' );
+					},
 					'type'        => [ 'list_of' => 'MetaDataInput' ],
+				],
+				'authenticate'          => [
+					'type'        => 'Boolean',
+					'description' => static function () {
+						return __( 'Set the current user to the newly registered customer. Avoid using in GraphiQL or contexts where a nonce is sent, as it will cause nonce verification to fail.', 'graphql-for-ecommerce' );
+					},
 				],
 			]
 		);
@@ -104,7 +118,7 @@ class Customer_Register {
 		return static function ( $input, AppContext $context, ResolveInfo $info ) {
 			// Validate input.
 			if ( empty( $input['email'] ) ) {
-				throw new UserError( __( 'Please provide a valid email address.', 'wp-graphql-woocommerce' ) );
+				throw new UserError( __( 'Please provide a valid email address.', 'graphql-for-ecommerce' ) );
 			}
 
 			// Validate password input.
@@ -112,7 +126,7 @@ class Customer_Register {
 				throw new UserError(
 					__(
 						'A password was not provided and WooCommerce does not automatically generate one for you.',
-						'wp-graphql-woocommerce'
+						'graphql-for-ecommerce'
 					)
 				);
 			}
@@ -135,13 +149,13 @@ class Customer_Register {
 				}
 
 				throw new UserError(
-					__( 'Sorry, an unknown error occured while trying to register customer', 'wp-graphql-woocommerce' )
+					__( 'Sorry, an unknown error occured while trying to register customer', 'graphql-for-ecommerce' )
 				);
 			}
 
 			// If the $post_id is empty, we should throw an exception.
 			if ( empty( $user_id ) ) {
-				throw new UserError( __( 'The object failed to create', 'wp-graphql-woocommerce' ) );
+				throw new UserError( __( 'The object failed to create', 'graphql-for-ecommerce' ) );
 			}
 
 			// Update additional user data.
@@ -185,9 +199,17 @@ class Customer_Register {
 			// Save customer and get customer ID.
 			$customer->save();
 
-			// Update current user.
-			if ( ! is_user_logged_in() ) {
+			// Optionally authenticate as the newly registered customer.
+			// Defaults to false to avoid nonce verification failures in
+			// contexts like GraphiQL that send a nonce with the request.
+			if ( ! empty( $input['authenticate'] ) && ! is_user_logged_in() ) {
 				wp_set_current_user( $user_id );
+
+				// Reinitialize the session token so the response header
+				// reflects the newly authenticated user instead of the guest.
+				if ( \WC()->session instanceof \WPGraphQL\WooCommerce\Utils\QL_Session_Handler ) {
+					\WC()->session->init_session_token();
+				}
 			}
 
 			// Return payload.

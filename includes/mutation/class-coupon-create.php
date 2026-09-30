@@ -46,83 +46,123 @@ class Coupon_Create {
 		return [
 			'code'                      => [
 				'type'        => [ 'non_null' => 'String' ],
-				'description' => __( 'Coupon code.', 'wp-graphql-woocommerce' ),
+				'description' => static function () {
+					return __( 'Coupon code.', 'graphql-for-ecommerce' );
+				},
 			],
 			'amount'                    => [
 				'type'        => 'Float',
-				'description' => __( 'The amount of discount. Should always be numeric, even if setting a percentage.', 'wp-graphql-woocommerce' ),
+				'description' => static function () {
+					return __( 'The amount of discount. Should always be numeric, even if setting a percentage.', 'graphql-for-ecommerce' );
+				},
 			],
 			'discountType'              => [
 				'type'        => 'DiscountTypeEnum',
-				'description' => __( 'Determines the type of discount that will be applied.', 'wp-graphql-woocommerce' ),
+				'description' => static function () {
+					return __( 'Determines the type of discount that will be applied.', 'graphql-for-ecommerce' );
+				},
 			],
 			'description'               => [
 				'type'        => 'String',
-				'description' => __( 'Coupon description.', 'wp-graphql-woocommerce' ),
+				'description' => static function () {
+					return __( 'Coupon description.', 'graphql-for-ecommerce' );
+				},
 			],
 			'dateExpires'               => [
 				'type'        => 'String',
-				'description' => __( 'The date the coupon expires, in the site\'s timezone.', 'wp-graphql-woocommerce' ),
+				'description' => static function () {
+					return __( 'The date the coupon expires, in the site\'s timezone.', 'graphql-for-ecommerce' );
+				},
 			],
 			'dateExpiresGmt'            => [
 				'type'        => 'String',
-				'description' => __( 'The date the coupon expires, as GMT.', 'wp-graphql-woocommerce' ),
+				'description' => static function () {
+					return __( 'The date the coupon expires, as GMT.', 'graphql-for-ecommerce' );
+				},
 			],
 			'individualUse'             => [
 				'type'        => 'Boolean',
-				'description' => __( 'If true, the coupon can only be used individually. Other applied coupons will be removed from the cart.', 'wp-graphql-woocommerce' ),
+				'description' => static function () {
+					return __( 'If true, the coupon can only be used individually. Other applied coupons will be removed from the cart.', 'graphql-for-ecommerce' );
+				},
 			],
 			'productIds'                => [
 				'type'        => [ 'list_of' => 'Int' ],
-				'description' => __( 'List of product IDs the coupon can be used on.', 'wp-graphql-woocommerce' ),
+				'description' => static function () {
+					return __( 'List of product IDs the coupon can be used on.', 'graphql-for-ecommerce' );
+				},
 			],
 			'excludedProductIds'        => [
 				'type'        => [ 'list_of' => 'Int' ],
-				'description' => __( 'List of product IDs the coupon cannot be used on.', 'wp-graphql-woocommerce' ),
+				'description' => static function () {
+					return __( 'List of product IDs the coupon cannot be used on.', 'graphql-for-ecommerce' );
+				},
 			],
 			'usageLimit'                => [
 				'type'        => 'Int',
-				'description' => __( 'How many times the coupon can be used in total.', 'wp-graphql-woocommerce' ),
+				'description' => static function () {
+					return __( 'How many times the coupon can be used in total.', 'graphql-for-ecommerce' );
+				},
 			],
 			'usageLimitPerUser'         => [
 				'type'        => 'Int',
-				'description' => __( 'How many times the coupon can be used per customer.', 'wp-graphql-woocommerce' ),
+				'description' => static function () {
+					return __( 'How many times the coupon can be used per customer.', 'graphql-for-ecommerce' );
+				},
 			],
 			'limitUsageToXItems'        => [
 				'type'        => 'Int',
-				'description' => __( 'Max number of items in the cart the coupon can be applied to.', 'wp-graphql-woocommerce' ),
+				'description' => static function () {
+					return __( 'Max number of items in the cart the coupon can be applied to.', 'graphql-for-ecommerce' );
+				},
 			],
 			'freeShipping'              => [
 				'type'        => 'Boolean',
-				'description' => __( 'If true and if the free shipping method requires a coupon, this coupon will enable free shipping.', 'wp-graphql-woocommerce' ),
+				'description' => static function () {
+					return __( 'If true and if the free shipping method requires a coupon, this coupon will enable free shipping.', 'graphql-for-ecommerce' );
+				},
 			],
 			'productCategories'         => [
 				'type'        => [ 'list_of' => 'Int' ],
-				'description' => __( 'List of category IDs the coupon applies to.', 'wp-graphql-woocommerce' ),
+				'description' => static function () {
+					return __( 'List of category IDs the coupon applies to.', 'graphql-for-ecommerce' );
+				},
 			],
 			'excludedProductCategories' => [
 				'type'        => [ 'list_of' => 'Int' ],
-				'description' => __( 'List of category IDs the coupon does not apply to.', 'wp-graphql-woocommerce' ),
+				'description' => static function () {
+					return __( 'List of category IDs the coupon does not apply to.', 'graphql-for-ecommerce' );
+				},
 			],
 			'excludeSaleItems'          => [
 				'type'        => 'Boolean',
-				'description' => __( 'If true, this coupon will not be applied to items that have sale prices.', 'wp-graphql-woocommerce' ),
+				'description' => static function () {
+					return __( 'If true, this coupon will not be applied to items that have sale prices.', 'graphql-for-ecommerce' );
+				},
 			],
 			'minimumAmount'             => [
 				'type'        => 'String',
-				'description' => __( 'Minimum order amount that needs to be in the cart before coupon applies.', 'wp-graphql-woocommerce' ),
+				'description' => static function () {
+					return __( 'Minimum order amount that needs to be in the cart before coupon applies.', 'graphql-for-ecommerce' );
+				},
 			],
 			'maximumAmount'             => [
 				'type'        => 'String',
-				'description' => __( 'Maximum order amount allowed when using the coupon.', 'wp-graphql-woocommerce' ),
+				'description' => static function () {
+					return __( 'Maximum order amount allowed when using the coupon.', 'graphql-for-ecommerce' );
+				},
 			],
 			'emailRestrictions'         => [
 				'type'        => [ 'list_of' => 'String' ],
-				'description' => __( 'List of email addresses that can use this coupon.', 'wp-graphql-woocommerce' ),
+				'description' => static function () {
+					return __( 'List of email addresses that can use this coupon.', 'graphql-for-ecommerce' );
+				},
 			],
 			'metaData'                  => [
 				'type'        => [ 'list_of' => 'MetaDataInput' ],
-				'description' => __( 'Meta data.', 'wp-graphql-woocommerce' ),
+				'description' => static function () {
+					return __( 'Meta data.', 'graphql-for-ecommerce' );
+				},
 			],
 		];
 	}
@@ -170,17 +210,17 @@ class Coupon_Create {
 		}
 
 		if ( false === $coupon_id ) {
-			throw new UserError( __( 'Coupon ID provided is invalid. Please check input and try again.', 'wp-graphql-woocommerce' ) );
+			throw new UserError( __( 'Coupon ID provided is invalid. Please check input and try again.', 'graphql-for-ecommerce' ) );
 		}
 
 		$coupon = new \WC_Coupon( $coupon_id );
 
 		if ( 0 === $coupon_id && ! wc_rest_check_post_permissions( 'shop_coupon', 'create' ) ) {
-			throw new UserError( __( 'Sorry, you are not allowed to create resources.', 'wp-graphql-woocommerce' ) );
+			throw new UserError( __( 'Sorry, you are not allowed to create resources.', 'graphql-for-ecommerce' ) );
 		}
 
 		if ( 0 !== $coupon_id && ! wc_rest_check_post_permissions( 'shop_coupon', 'edit', $coupon_id ) ) {
-			throw new UserError( __( 'Sorry, you are not allowed to edit this resource.', 'wp-graphql-woocommerce' ) );
+			throw new UserError( __( 'Sorry, you are not allowed to edit this resource.', 'graphql-for-ecommerce' ) );
 		}
 
 		$coupon_args = Coupon_Mutation::prepare_args( $input );
@@ -193,7 +233,7 @@ class Coupon_Create {
 					$id_from_code = wc_get_coupon_id_by_code( $coupon_code, $id );
 
 					if ( $id_from_code ) {
-						throw new UserError( __( 'The coupon code already exists', 'wp-graphql-woocommerce' ) );
+						throw new UserError( __( 'The coupon code already exists', 'graphql-for-ecommerce' ) );
 					}
 
 					$coupon->set_code( $coupon_code );

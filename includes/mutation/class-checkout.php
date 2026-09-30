@@ -47,43 +47,75 @@ class Checkout {
 		return [
 			'paymentMethod'          => [
 				'type'        => 'String',
-				'description' => __( 'Payment method ID.', 'wp-graphql-woocommerce' ),
+				'description' => static function () {
+					return __( 'Payment method ID.', 'graphql-for-ecommerce' );
+				},
 			],
 			'shippingMethod'         => [
 				'type'        => [ 'list_of' => 'String' ],
-				'description' => __( 'Order shipping method', 'wp-graphql-woocommerce' ),
+				'description' => static function () {
+					return __( 'Order shipping method', 'graphql-for-ecommerce' );
+				},
 			],
 			'shipToDifferentAddress' => [
 				'type'        => 'Boolean',
-				'description' => __( 'Ship to a separate address', 'wp-graphql-woocommerce' ),
+				'description' => static function () {
+					return __( 'Ship to a separate address', 'graphql-for-ecommerce' );
+				},
 			],
 			'billing'                => [
 				'type'        => 'CustomerAddressInput',
-				'description' => __( 'Order billing address', 'wp-graphql-woocommerce' ),
+				'description' => static function () {
+					return __( 'Order billing address', 'graphql-for-ecommerce' );
+				},
 			],
 			'shipping'               => [
 				'type'        => 'CustomerAddressInput',
-				'description' => __( 'Order shipping address', 'wp-graphql-woocommerce' ),
+				'description' => static function () {
+					return __( 'Order shipping address', 'graphql-for-ecommerce' );
+				},
 			],
 			'account'                => [
 				'type'        => 'CreateAccountInput',
-				'description' => __( 'Create new customer account', 'wp-graphql-woocommerce' ),
+				'description' => static function () {
+					return __( 'Create new customer account', 'graphql-for-ecommerce' );
+				},
 			],
 			'transactionId'          => [
 				'type'        => 'String',
-				'description' => __( 'Order transaction ID', 'wp-graphql-woocommerce' ),
+				'description' => static function () {
+					return __( 'Order transaction ID', 'graphql-for-ecommerce' );
+				},
 			],
 			'isPaid'                 => [
 				'type'        => 'Boolean',
-				'description' => __( 'Define if the order is paid. It will set the status to processing and reduce stock items.', 'wp-graphql-woocommerce' ),
+				'description' => static function () {
+					return __( 'Define if the order is paid. It will set the status to processing and reduce stock items.', 'graphql-for-ecommerce' );
+				},
 			],
 			'metaData'               => [
 				'type'        => [ 'list_of' => 'MetaDataInput' ],
-				'description' => __( 'Order meta data', 'wp-graphql-woocommerce' ),
+				'description' => static function () {
+					return __( 'Order meta data', 'graphql-for-ecommerce' );
+				},
 			],
 			'customerNote'           => [
 				'type'        => 'String',
-				'description' => __( 'Order customer note', 'wp-graphql-woocommerce' ),
+				'description' => static function () {
+					return __( 'Order customer note', 'graphql-for-ecommerce' );
+				},
+			],
+			'fees'                   => [
+				'type'        => [ 'list_of' => 'FeeInput' ],
+				'description' => static function () {
+					return __( 'Fees to add to the order.', 'graphql-for-ecommerce' );
+				},
+			],
+			'createdVia'             => [
+				'type'        => 'String',
+				'description' => static function () {
+					return __( 'Source of the order. Useful when WooCommerce is driven from multiple sources. Defaults to "checkout".', 'graphql-for-ecommerce' );
+				},
 			],
 		];
 	}
@@ -119,6 +151,15 @@ class Checkout {
 					return $payload['redirect'];
 				},
 			],
+			'notices'  => [
+				'type'        => [ 'list_of' => 'CartNotice' ],
+				'description' => static function () {
+					return __( 'WooCommerce notices generated during checkout', 'graphql-for-ecommerce' );
+				},
+				'resolve'     => static function ( $payload ) {
+					return $payload['notices'] ?? [];
+				},
+			],
 		];
 	}
 
@@ -152,8 +193,15 @@ class Checkout {
 				$order = \WC_Order_Factory::get_order( $order_id );
 
 				if ( ! is_object( $order ) ) {
-					throw new UserError( __( 'Failed to retrieve order after checkout', 'wp-graphql-woocommerce' ) );
+					throw new UserError( __( 'Failed to retrieve order after checkout', 'graphql-for-ecommerce' ) );
 				}//end if
+
+				// Capture any non-error notices for successful checkouts.
+				$notices           = wc_get_notices();
+				$formatted_notices = self::format_notices_for_response( $notices );
+
+				// Clear notices to prevent persistence.
+				wc_clear_notices();
 
 				/**
 				 * Action called after checking out.
@@ -165,15 +213,85 @@ class Checkout {
 				 */
 				do_action( 'graphql_woocommerce_after_checkout', $order, $input, $context, $info );
 
-				return array_merge( [ 'id' => $order_id ], $results );
+				return array_merge( [ 'id' => $order_id ], $results, [ 'notices' => $formatted_notices ] );
 			} catch ( \Throwable $e ) {
 				// Delete order if it was created.
 				if ( is_object( $order ) ) {
 					Order_Mutation::purge( $order );
 				}
-				// Throw error.
-				throw new UserError( $e->getMessage() );
+
+				// Capture any WC notices that were added during checkout process.
+				$notices       = wc_get_notices();
+				$error_message = $e->getMessage();
+
+				// If there are notices, use them instead of the original error.
+				if ( ! empty( $notices ) ) {
+					$formatted_notices = self::format_notices_for_error( $notices );
+					if ( ! empty( $formatted_notices ) ) {
+						$error_message = $formatted_notices;
+					}
+				}
+
+				// Clear notices to prevent them from persisting to next request.
+				wc_clear_notices();
+
+				// Throw error with enhanced message.
+				throw new UserError( $error_message );
 			}//end try
 		};
+	}
+
+	/**
+	 * Format WC notices for GraphQL response.
+	 *
+	 * @param array $notices WC notices array.
+	 * @return array Formatted notices for GraphQL
+	 */
+	private static function format_notices_for_response( $notices ) {
+		$formatted_notices = [];
+
+		// Include non-error notices (success, notice).
+		foreach ( [ 'success', 'notice' ] as $type ) {
+			if ( ! empty( $notices[ $type ] ) ) {
+				foreach ( $notices[ $type ] as $notice ) {
+					$formatted_notices[] = [
+						'type'    => $type,
+						'message' => $notice['notice'] ?? $notice,
+					];
+				}
+			}
+		}
+
+		return $formatted_notices;
+	}
+
+	/**
+	 * Format WC notices for error reporting
+	 *
+	 * @param array $notices WC notices array
+	 * @return string Formatted error message
+	 */
+	private static function format_notices_for_error( $notices ) {
+		$error_messages = [];
+
+		// Prioritize error notices.
+		if ( ! empty( $notices['error'] ) ) {
+			foreach ( $notices['error'] as $notice ) {
+				$error_messages[] = $notice['notice'] ?? $notice;
+			}
+		}
+
+		// Include other notice types if no errors.
+		if ( empty( $error_messages ) ) {
+			foreach ( [ 'notice', 'success' ] as $type ) {
+				if ( ! empty( $notices[ $type ] ) ) {
+					foreach ( $notices[ $type ] as $notice ) {
+						$error_messages[] = $notice['notice'] ?? $notice;
+					}
+				}
+			}
+		}
+
+		return implode( ' ', $error_messages );
 	}
 }

@@ -10,6 +10,7 @@
 
 namespace WPGraphQL\WooCommerce\Type\WPObject;
 
+use GraphQL\Deferred;
 use GraphQL\Error\UserError;
 use GraphQL\Type\Definition\ResolveInfo;
 use WPGraphQL\AppContext;
@@ -32,11 +33,15 @@ class Customer_Type {
 			[
 				'id'                    => [
 					'type'        => [ 'non_null' => 'ID' ],
-					'description' => __( 'The globally unique identifier for the customer', 'wp-graphql-woocommerce' ),
+					'description' => static function () {
+						return __( 'The globally unique identifier for the customer', 'graphql-for-ecommerce' );
+					},
 				],
 				'databaseId'            => [
 					'type'        => 'Int',
-					'description' => __( 'The ID of the customer in the database', 'wp-graphql-woocommerce' ),
+					'description' => static function () {
+						return __( 'The ID of the customer in the database', 'graphql-for-ecommerce' );
+					},
 					'resolve'     => static function ( $source ) {
 						$database_id = absint( $source->ID );
 						return ! empty( $database_id ) ? $database_id : null;
@@ -44,79 +49,115 @@ class Customer_Type {
 				],
 				'isVatExempt'           => [
 					'type'        => 'Boolean',
-					'description' => __( 'Is customer VAT exempt?', 'wp-graphql-woocommerce' ),
+					'description' => static function () {
+						return __( 'Is customer VAT exempt?', 'graphql-for-ecommerce' );
+					},
 				],
 				'hasCalculatedShipping' => [
 					'type'        => 'Boolean',
-					'description' => __( 'Has calculated shipping?', 'wp-graphql-woocommerce' ),
+					'description' => static function () {
+						return __( 'Has calculated shipping?', 'graphql-for-ecommerce' );
+					},
 				],
 				'calculatedShipping'    => [
 					'type'        => 'Boolean',
-					'description' => __( 'Has customer calculated shipping?', 'wp-graphql-woocommerce' ),
+					'description' => static function () {
+						return __( 'Has customer calculated shipping?', 'graphql-for-ecommerce' );
+					},
 				],
 				'lastOrder'             => [
 					'type'        => 'Order',
-					'description' => __( 'Gets the customers last order.', 'wp-graphql-woocommerce' ),
+					'description' => static function () {
+						return __( 'Gets the customers last order.', 'graphql-for-ecommerce' );
+					},
 					'resolve'     => static function ( $source, array $args, AppContext $context ) {
 						return Factory::resolve_crud_object( $source->last_order_id, $context );
 					},
 				],
 				'orderCount'            => [
 					'type'        => 'Int',
-					'description' => __( 'Return the number of orders this customer has.', 'wp-graphql-woocommerce' ),
+					'description' => static function () {
+						return __( 'Return the number of orders this customer has.', 'graphql-for-ecommerce' );
+					},
 				],
 				'totalSpent'            => [
 					'type'        => 'Float',
-					'description' => __( 'Return how much money this customer has spent.', 'wp-graphql-woocommerce' ),
+					'description' => static function () {
+						return __( 'Return how much money this customer has spent.', 'graphql-for-ecommerce' );
+					},
 				],
 				'username'              => [
 					'type'        => 'String',
-					'description' => __( 'Return the customer\'s username.', 'wp-graphql-woocommerce' ),
+					'description' => static function () {
+						return __( 'Return the customer\'s username.', 'graphql-for-ecommerce' );
+					},
 				],
 				'email'                 => [
 					'type'        => 'String',
-					'description' => __( 'Return the customer\'s email.', 'wp-graphql-woocommerce' ),
+					'description' => static function () {
+						return __( 'Return the customer\'s email.', 'graphql-for-ecommerce' );
+					},
 				],
 				'firstName'             => [
 					'type'        => 'String',
-					'description' => __( 'Return the customer\'s first name.', 'wp-graphql-woocommerce' ),
+					'description' => static function () {
+						return __( 'Return the customer\'s first name.', 'graphql-for-ecommerce' );
+					},
 				],
 				'lastName'              => [
 					'type'        => 'String',
-					'description' => __( 'Return the customer\'s last name.', 'wp-graphql-woocommerce' ),
+					'description' => static function () {
+						return __( 'Return the customer\'s last name.', 'graphql-for-ecommerce' );
+					},
 				],
 				'displayName'           => [
 					'type'        => 'String',
-					'description' => __( 'Return the customer\'s display name.', 'wp-graphql-woocommerce' ),
+					'description' => static function () {
+						return __( 'Return the customer\'s display name.', 'graphql-for-ecommerce' );
+					},
 				],
 				'role'                  => [
 					'type'        => 'String',
-					'description' => __( 'Return the customer\'s user role.', 'wp-graphql-woocommerce' ),
+					'description' => static function () {
+						return __( 'Return the customer\'s user role.', 'graphql-for-ecommerce' );
+					},
 				],
 				'date'                  => [
 					'type'        => 'String',
-					'description' => __( 'Return the date customer was created', 'wp-graphql-woocommerce' ),
+					'description' => static function () {
+						return __( 'Return the date customer was created', 'graphql-for-ecommerce' );
+					},
 				],
 				'modified'              => [
 					'type'        => 'String',
-					'description' => __( 'Return the date customer was last updated', 'wp-graphql-woocommerce' ),
+					'description' => static function () {
+						return __( 'Return the date customer was last updated', 'graphql-for-ecommerce' );
+					},
 				],
 				'billing'               => [
 					'type'        => 'CustomerAddress',
-					'description' => __( 'Return the date customer billing address properties', 'wp-graphql-woocommerce' ),
+					'description' => static function () {
+						return __( 'Return the date customer billing address properties', 'graphql-for-ecommerce' );
+					},
 				],
 				'shipping'              => [
 					'type'        => 'CustomerAddress',
-					'description' => __( 'Return the date customer shipping address properties', 'wp-graphql-woocommerce' ),
+					'description' => static function () {
+						return __( 'Return the date customer shipping address properties', 'graphql-for-ecommerce' );
+					},
 				],
 				'isPayingCustomer'      => [
 					'type'        => 'Boolean',
-					'description' => __( 'Return the date customer was last updated', 'wp-graphql-woocommerce' ),
+					'description' => static function () {
+						return __( 'Return the date customer was last updated', 'graphql-for-ecommerce' );
+					},
 				],
 				'metaData'              => Meta_Data_Type::get_metadata_field_definition(),
 				'session'               => [
 					'type'        => [ 'list_of' => 'MetaData' ],
-					'description' => __( 'Session data for the viewing customer', 'wp-graphql-woocommerce' ),
+					'description' => static function () {
+						return __( 'Session data for the viewing customer', 'graphql-for-ecommerce' );
+					},
 					'resolve'     => static function ( $source ) {
 						/**
 						 * Session Handler.
@@ -139,7 +180,7 @@ class Customer_Type {
 							return $session;
 						}
 
-						throw new UserError( __( 'It\'s not possible to access another user\'s session data', 'wp-graphql-woocommerce' ) );
+						throw new UserError( __( 'It\'s not possible to access another user\'s session data', 'graphql-for-ecommerce' ) );
 					},
 				],
 			],
@@ -162,15 +203,21 @@ class Customer_Type {
 					'connectionArgs' => [
 						'active'                => [
 							'type'        => 'Boolean',
-							'description' => __( 'Limit results to downloadable items that can be downloaded now.', 'wp-graphql-woocommerce' ),
+							'description' => static function () {
+								return __( 'Limit results to downloadable items that can be downloaded now.', 'graphql-for-ecommerce' );
+							},
 						],
 						'expired'               => [
 							'type'        => 'Boolean',
-							'description' => __( 'Limit results to downloadable items that are expired.', 'wp-graphql-woocommerce' ),
+							'description' => static function () {
+								return __( 'Limit results to downloadable items that are expired.', 'graphql-for-ecommerce' );
+							},
 						],
 						'hasDownloadsRemaining' => [
 							'type'        => 'Boolean',
-							'description' => __( 'Limit results to downloadable items that have downloads remaining.', 'wp-graphql-woocommerce' ),
+							'description' => static function () {
+								return __( 'Limit results to downloadable items that have downloads remaining.', 'graphql-for-ecommerce' );
+							},
 						],
 					],
 					'resolve'        => static function ( $source, array $args, AppContext $context, ResolveInfo $info ) {
@@ -193,7 +240,9 @@ class Customer_Type {
 		register_graphql_object_type(
 			'Customer',
 			[
-				'description' => __( 'A customer object', 'wp-graphql-woocommerce' ),
+				'description' => static function () {
+					return __( 'A customer object', 'graphql-for-ecommerce' );
+				},
 				'interfaces'  => [ 'Node' ],
 				/**
 				 * Allows for a decisive filtering of the order fields.
@@ -221,8 +270,10 @@ class Customer_Type {
 			'Customer',
 			[
 				'availablePaymentMethods'   => [
-					'type'        => [ 'list_of' => 'PaymentToken' ],
-					'description' => __( 'Customer\'s stored payment tokens.', 'wp-graphql-woocommerce' ),
+					'type'        => [ 'list_of' => 'PaymentTokenInterface' ],
+					'description' => static function () {
+						return __( 'Customer\'s stored payment tokens.', 'graphql-for-ecommerce' );
+					},
 					'resolve'     => static function ( $source ) {
 						if ( get_current_user_id() === $source->ID ) {
 							return array_values( \WC_Payment_Tokens::get_customer_tokens( $source->ID ) );
@@ -232,12 +283,14 @@ class Customer_Type {
 							return [];
 						}
 
-						throw new UserError( __( 'Not authorized to view this user\'s payment methods.', 'wp-graphql-woocommerce' ) );
+						throw new UserError( __( 'Not authorized to view this user\'s payment methods.', 'graphql-for-ecommerce' ) );
 					},
 				],
 				'availablePaymentMethodsCC' => [
 					'type'        => [ 'list_of' => 'PaymentTokenCC' ],
-					'description' => __( 'Customer\'s stored payment tokens.', 'wp-graphql-woocommerce' ),
+					'description' => static function () {
+						return __( 'Customer\'s stored payment tokens.', 'graphql-for-ecommerce' );
+					},
 					'resolve'     => static function ( $source ) {
 						if ( get_current_user_id() === $source->ID ) {
 							return array_filter(
@@ -252,12 +305,14 @@ class Customer_Type {
 							return [];
 						}
 
-						throw new UserError( __( 'Not authorized to view this user\'s payment methods.', 'wp-graphql-woocommerce' ) );
+						throw new UserError( __( 'Not authorized to view this user\'s payment methods.', 'graphql-for-ecommerce' ) );
 					},
 				],
 				'availablePaymentMethodsEC' => [
 					'type'        => [ 'list_of' => 'PaymentTokenECheck' ],
-					'description' => __( 'Customer\'s stored payment tokens.', 'wp-graphql-woocommerce' ),
+					'description' => static function () {
+						return __( 'Customer\'s stored payment tokens.', 'graphql-for-ecommerce' );
+					},
 					'resolve'     => static function ( $source ) {
 						if ( get_current_user_id() === $source->ID ) {
 							return array_filter(
@@ -272,7 +327,7 @@ class Customer_Type {
 							return [];
 						}
 
-						throw new UserError( __( 'Not authorized to view this user\'s payment methods.', 'wp-graphql-woocommerce' ) );
+						throw new UserError( __( 'Not authorized to view this user\'s payment methods.', 'graphql-for-ecommerce' ) );
 					},
 				],
 			]
@@ -285,56 +340,138 @@ class Customer_Type {
 	 * @return void
 	 */
 	public static function register_session_handler_fields() {
-		/**
-		 * Register the "sessionToken" field to the "Customer" type.
-		 */
-		register_graphql_field(
-			'Customer',
-			'sessionToken',
-			[
-				'type'        => 'String',
-				'description' => __( 'A JWT token that can be used in future requests to for WooCommerce session identification', 'wp-graphql-woocommerce' ),
-				'resolve'     => static function ( $source ) {
-					if ( \get_current_user_id() === $source->ID || 'guest' === $source->id ) {
-						/**
-						 * Session handler.
-						 *
-						 * @var \WPGraphQL\WooCommerce\Utils\QL_Session_Handler $session
-						 */
-						$session = \WC()->session;
+		$token_type = woographql_setting( 'set_session_token_type', 'legacy' );
+		if ( in_array( $token_type, [ 'legacy', 'both' ], true ) ) {
+			/**
+			 * Register the "sessionToken" field to the "Customer" type.
+			 */
+			register_graphql_field(
+				'Customer',
+				'sessionToken',
+				[
+					'type'        => 'String',
+					'description' => static function () {
+						return __( 'A JWT token that can be used in future requests to for WooCommerce session identification', 'graphql-for-ecommerce' );
+					},
+					'resolve'     => static function ( $source ) {
+						if ( \get_current_user_id() === $source->ID || 'guest' === $source->id ) {
+							return new Deferred(
+								static function () {
+									/**
+									 * Session handler.
+									 *
+									 * @var \WPGraphQL\WooCommerce\Utils\QL_Session_Handler $session
+									 */
+									$session = \WC()->session;
 
-						return apply_filters( 'graphql_customer_session_token', $session->build_token() );
-					}
+									return apply_filters( 'graphql_customer_session_token', $session->build_token() );
+								}
+							);
+						}
 
-					return null;
-				},
-			]
-		);
-		/**
-		 * Register the "wooSessionToken" field to the "User" type.
-		 */
-		register_graphql_field(
-			'User',
-			'wooSessionToken',
-			[
-				'type'        => 'String',
-				'description' => __( 'A JWT token that can be used in future requests to for WooCommerce session identification', 'wp-graphql-woocommerce' ),
-				'resolve'     => static function ( $source ) {
-					if ( \get_current_user_id() === $source->userId ) { // phpcs:ignore WordPress.NamingConventions.ValidVariableName.UsedPropertyNotSnakeCase
-						/**
-						 * Session handler
-						 *
-						 * @var \WPGraphQL\WooCommerce\Utils\QL_Session_Handler $session
-						 */
-						$session = \WC()->session;
+						return null;
+					},
+				]
+			);
 
-						return apply_filters( 'graphql_customer_session_token', $session->build_token() );
-					}
+			/**
+			 * Register the "wooSessionToken" field to the "User" type.
+			 */
+			register_graphql_field(
+				'User',
+				'wooSessionToken',
+				[
+					'type'        => 'String',
+					'description' => static function () {
+						return __( 'A JWT token that can be used in future requests to for WooCommerce session identification', 'graphql-for-ecommerce' );
+					},
+					'resolve'     => static function ( $source ) {
+						if ( \get_current_user_id() === $source->userId ) { // phpcs:ignore WordPress.NamingConventions.ValidVariableName.UsedPropertyNotSnakeCase
+							return new Deferred(
+								static function () {
+									/**
+									 * Session handler
+									 *
+									 * @var \WPGraphQL\WooCommerce\Utils\QL_Session_Handler $session
+									 */
+									$session = \WC()->session;
 
-					return null;
-				},
-			]
-		);
+									return apply_filters( 'graphql_customer_session_token', $session->build_token() );
+								}
+							);
+						}
+
+						return null;
+					},
+				]
+			);
+		}
+
+		if ( in_array( $token_type, [ 'store-api', 'both' ], true ) ) {
+			/**
+			 * Register the "cartToken" field to the "Customer" type.
+			 */
+			register_graphql_field(
+				'Customer',
+				'cartToken',
+				[
+					'type'        => 'String',
+					'description' => static function () {
+						return __( 'A JWT token that can be used in future requests to for WooCommerce session identification', 'graphql-for-ecommerce' );
+					},
+					'resolve'     => static function ( $source ) {
+						if ( \get_current_user_id() === $source->ID || 'guest' === $source->id ) {
+							return new Deferred(
+								static function () {
+									/**
+									 * Session handler.
+									 *
+									 * @var \WPGraphQL\WooCommerce\Utils\QL_Session_Handler $session
+									 */
+									$session = \WC()->session;
+
+									return apply_filters( 'graphql_cart_token', $session->build_cart_token() );
+								}
+							);
+						}
+
+						return null;
+					},
+				]
+			);
+
+			/**
+			 * Register the "cartToken" field to the "User" type.
+			 */
+			register_graphql_field(
+				'User',
+				'cartToken',
+				[
+					'type'        => 'String',
+					'description' => static function () {
+						return __( 'A JWT token that can be used in future requests to for WooCommerce session identification', 'graphql-for-ecommerce' );
+					},
+					'resolve'     => static function ( $source ) {
+						if ( \get_current_user_id() === $source->userId ) { // phpcs:ignore WordPress.NamingConventions.ValidVariableName.UsedPropertyNotSnakeCase
+							return new Deferred(
+								static function () {
+									/**
+									 * Session handler
+									 *
+									 * @var \WPGraphQL\WooCommerce\Utils\QL_Session_Handler $session
+									 */
+									$session = \WC()->session;
+
+									return apply_filters( 'graphql_cart_token', $session->build_cart_token() );
+								}
+							);
+						}
+
+						return null;
+					},
+				]
+			);
+		}
 	}
 
 	/**
@@ -350,7 +487,9 @@ class Customer_Type {
 				[
 					'cartUrl'   => [
 						'type'        => 'String',
-						'description' => __( 'A nonced link to the cart page. By default, it expires in 1 hour.', 'wp-graphql-woocommerce' ),
+						'description' => static function () {
+							return __( 'A nonced link to the cart page. By default, it expires in 1 hour.', 'graphql-for-ecommerce' );
+						},
 						'resolve'     => static function ( $source ) {
 							// Get current customer and user ID.
 							$customer_id     = $source->ID;
@@ -378,7 +517,9 @@ class Customer_Type {
 					],
 					'cartNonce' => [
 						'type'        => 'String',
-						'description' => __( 'A nonce for the cart page. By default, it expires in 1 hour.', 'wp-graphql-woocommerce' ),
+						'description' => static function () {
+							return __( 'A nonce for the cart page. By default, it expires in 1 hour.', 'graphql-for-ecommerce' );
+						},
 						'resolve'     => static function ( $source ) {
 							// Get current customer and user ID.
 							$customer_id     = $source->ID;
@@ -402,7 +543,9 @@ class Customer_Type {
 				[
 					'checkoutUrl'   => [
 						'type'        => 'String',
-						'description' => __( 'A nonce link to the checkout page for session user. Expires in 24 hours.', 'wp-graphql-woocommerce' ),
+						'description' => static function () {
+							return __( 'A nonce link to the checkout page for session user. Expires in 24 hours.', 'graphql-for-ecommerce' );
+						},
 						'resolve'     => static function ( $source ) {
 							// Get current customer and user ID.
 							$customer_id     = $source->ID;
@@ -430,7 +573,9 @@ class Customer_Type {
 					],
 					'checkoutNonce' => [
 						'type'        => 'String',
-						'description' => __( 'A nonce for the checkout page. By default, it expires in 1 hour.', 'wp-graphql-woocommerce' ),
+						'description' => static function () {
+							return __( 'A nonce for the checkout page. By default, it expires in 1 hour.', 'graphql-for-ecommerce' );
+						},
 						'resolve'     => static function ( $source ) {
 							// Get current customer and user ID.
 							$customer_id     = $source->ID;
@@ -454,7 +599,9 @@ class Customer_Type {
 				[
 					'accountUrl'   => [
 						'type'        => 'String',
-						'description' => __( 'A nonce link to the account page for session user. Expires in 24 hours.', 'wp-graphql-woocommerce' ),
+						'description' => static function () {
+							return __( 'A nonce link to the account page for session user. Expires in 24 hours.', 'graphql-for-ecommerce' );
+						},
 						'resolve'     => static function ( $source ) {
 							if ( ! is_user_logged_in() ) {
 								return null;
@@ -486,7 +633,9 @@ class Customer_Type {
 					],
 					'accountNonce' => [
 						'type'        => 'String',
-						'description' => __( 'A nonce for the account page. By default, it expires in 1 hour.', 'wp-graphql-woocommerce' ),
+						'description' => static function () {
+							return __( 'A nonce for the account page. By default, it expires in 1 hour.', 'graphql-for-ecommerce' );
+						},
 						'resolve'     => static function ( $source ) {
 							if ( ! is_user_logged_in() ) {
 								return null;
@@ -514,7 +663,9 @@ class Customer_Type {
 				[
 					'addPaymentMethodUrl'   => [
 						'type'        => 'String',
-						'description' => __( 'A nonce link to the add payment method page for the authenticated user. Expires in 24 hours.', 'wp-graphql-woocommerce' ),
+						'description' => static function () {
+							return __( 'A nonce link to the add payment method page for the authenticated user. Expires in 24 hours.', 'graphql-for-ecommerce' );
+						},
 						'resolve'     => static function ( $source ) {
 							if ( ! is_user_logged_in() ) {
 								return null;
@@ -544,7 +695,9 @@ class Customer_Type {
 					],
 					'addPaymentMethodNonce' => [
 						'type'        => 'String',
-						'description' => __( 'A nonce for the add payment method page. By default, it expires in 1 hour.', 'wp-graphql-woocommerce' ),
+						'description' => static function () {
+							return __( 'A nonce for the add payment method page. By default, it expires in 1 hour.', 'graphql-for-ecommerce' );
+						},
 						'resolve'     => static function ( $source ) {
 							if ( ! is_user_logged_in() ) {
 								return null;

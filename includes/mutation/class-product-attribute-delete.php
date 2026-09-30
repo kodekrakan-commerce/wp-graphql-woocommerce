@@ -1,0 +1,98 @@
+<?php
+/**
+ * Mutation - deleteProductAttribute
+ *
+ * Registers mutation for deleting a product attribute.
+ *
+ * @package WPGraphQL\WooCommerce\Mutation
+ * @since 1.0.0
+ */
+
+namespace WPGraphQL\WooCommerce\Mutation;
+
+use GraphQL\Error\UserError;
+use GraphQL\Type\Definition\ResolveInfo;
+use WPGraphQL\AppContext;
+use WPGraphQL\WooCommerce\Data\Mutation\Product_Mutation;
+
+/**
+ * Class Product_Attribute_Delete
+ */
+class Product_Attribute_Delete {
+	/**
+	 * Registers mutation
+	 *
+	 * @return void
+	 */
+	public static function register_mutation() {
+		register_graphql_mutation(
+			'deleteProductAttribute',
+			[
+				'inputFields'         => self::get_input_fields(),
+				'outputFields'        => self::get_output_fields(),
+				'mutateAndGetPayload' => self::mutate_and_get_payload(),
+			]
+		);
+	}
+
+	/**
+	 * Defines the mutation input field configuration
+	 *
+	 * @return array
+	 */
+	public static function get_input_fields() {
+		return [
+			'id' => [
+				'type'        => [ 'non_null' => 'ID' ],
+				'description' => static function () {
+					return __( 'Unique identifier for the product.', 'graphql-for-ecommerce' );
+				},
+			],
+		];
+	}
+
+	/**
+	 * Defines the mutation output field configuration
+	 *
+	 * @return array
+	 */
+	public static function get_output_fields() {
+		return [
+			'attribute' => [
+				'type'    => 'ProductAttributeObject',
+				'resolve' => static function ( $payload ) {
+					return $payload['attribute'];
+				},
+			],
+		];
+	}
+
+	/**
+	 * Defines the mutation data modification closure.
+	 *
+	 * @return callable
+	 */
+	public static function mutate_and_get_payload() {
+		return static function ( $input, AppContext $context, ResolveInfo $info ) {
+			if ( ! wc_rest_check_manager_permissions( 'attributes', 'delete' ) ) {
+				throw new UserError( __( 'Sorry, you cannot delete attributes.', 'graphql-for-ecommerce' ) );
+			}
+
+			$attribute = Product_Mutation::get_attribute( $input['id'] );
+			$deleted   = wc_delete_attribute( $attribute->attribute_id );
+
+			if ( false === $deleted ) {
+				throw new UserError( __( 'Failed to delete attribute.', 'graphql-for-ecommerce' ) );
+			}
+
+			/**
+			 * Fires after a single attribute is deleted via the REST API.
+			 *
+			 * @param object{attribute_id: int} $attribute  The deleted attribute.
+			 */
+			do_action( 'graphql_woocommerce_delete_product_attribute', $attribute );
+
+			return [ 'attribute' => $attribute ];
+		};
+	}
+}

@@ -11,9 +11,9 @@ namespace WPGraphQL\WooCommerce;
 use WPGraphQL\WooCommerce\WP_GraphQL_WooCommerce as WooGraphQL;
 
 /**
- * Class WooCommerce_Filters
+ * Class WooCommerce
  */
-class WooCommerce_Filters {
+class WooCommerce {
 	/**
 	 * Stores instance session header name.
 	 *
@@ -26,7 +26,7 @@ class WooCommerce_Filters {
 	 *
 	 * @return void
 	 */
-	public static function setup() {
+	public static function init() {
 		self::$session_header = apply_filters( 'graphql_woocommerce_cart_session_http_header', 'woocommerce-session' );
 
 		// Check if request is a GraphQL POST request.
@@ -34,14 +34,54 @@ class WooCommerce_Filters {
 			add_filter( 'woocommerce_session_handler', [ self::class, 'woocommerce_session_handler' ] );
 			add_filter( 'graphql_response_headers_to_send', [ self::class, 'add_session_header_to_expose_headers' ] );
 			add_filter( 'graphql_access_control_allow_headers', [ self::class, 'add_session_header_to_allow_headers' ] );
+
+			// Initialize cart/session after JWT authentication has had a chance to run.
+			add_action( 'init_graphql_request', [ self::class, 'initialize_session_and_cart' ] );
 		}
 
-		// Add better support for Stripe payment gateway.
-		add_filter( 'graphql_stripe_process_payment_args', [ self::class, 'woographql_stripe_gateway_args' ], 10, 2 );
+		// Authenticate pre-auth download URLs before WooCommerce's download handler.
+		if ( 'on' === woographql_setting( 'enable_pre_auth_download_urls', 'off' ) ) {
+			add_action( 'init', [ self::class, 'authenticate_pre_auth_download' ], 1 );
+		}
 
 		// WPGraphQL Reset password -> Use woocommerce email password template when requested.
 		add_filter( 'retrieve_password_message', [ self::class, 'get_reset_password_message' ], 10, 3 );
 		add_filter( 'retrieve_password_title', [ self::class, 'get_reset_password_title' ] );
+
+		// Brand the WooCommerce Order Attribution "Origin" for orders created through WPGraphQL.
+		add_filter( 'wc_order_attribution_origin_label', [ self::class, 'order_attribution_origin_label' ], 10, 4 );
+	}
+
+	/**
+	 * Returns the WooCommerce Order Attribution source type used to mark orders created through WPGraphQL.
+	 *
+	 * Matches the default `created_via` value so GraphQL-created orders are attributable out of the box.
+	 *
+	 * @return string
+	 */
+	public static function get_order_attribution_source_type() {
+		return apply_filters( 'graphql_woocommerce_order_attribution_source_type', 'graphql-api' );
+	}
+
+	/**
+	 * Provides the WooCommerce Order Attribution "Origin" label for orders created through WPGraphQL.
+	 *
+	 * Connected to WooCommerce's order origin label filter so orders tagged with our attribution
+	 * source type surface a recognizable origin instead of "Unknown".
+	 *
+	 * @param string $label            Origin label. May contain a "%s" placeholder for the source.
+	 * @param string $source_type      Attribution source type.
+	 * @param string $source           Attribution source.
+	 * @param string $formatted_source Formatted attribution source.
+	 *
+	 * @return string
+	 */
+	public static function order_attribution_origin_label( $label, $source_type, $source, $formatted_source ) {
+		if ( self::get_order_attribution_source_type() !== $source_type ) {
+			return $label;
+		}
+
+		return apply_filters( 'graphql_woocommerce_order_attribution_origin_label', __( 'GraphQL', 'graphql-for-ecommerce' ), $source, $formatted_source );
 	}
 
 	/**
@@ -50,7 +90,38 @@ class WooCommerce_Filters {
 	 * @return boolean
 	 */
 	public static function is_session_handler_disabled() {
-		return defined( 'NO_QL_SESSION_HANDLER' ) || 'on' === woographql_setting( 'disable_ql_session_handler', 'off' );
+		return \defined( 'NO_QL_SESSION_HANDLER' ) || 'on' === woographql_setting( 'disable_ql_session_handler', 'off' );
+	}
+
+	/**
+	 * Initialize WooCommerce session and cart for GraphQL requests.
+	 *
+	 * This is hooked to 'graphql_before_execute' to ensure JWT authentication has
+	 * had a chance to set the current user before the session is initialized.
+	 * This fixes an issue where guest sessions weren't being updated when a user
+	 * provides both a Cart-Token (session) and Authorization (JWT) header.
+	 *
+	 * @return void
+	 */
+	public static function initialize_session_and_cart() {
+		if ( ! \WPGraphQL\Router::is_graphql_http_request() ) {
+			return;
+		}
+
+		// Clear any existing WooCommerce objects to ensure fresh initialization
+		// with the correct user context after JWT authentication.
+
+		// @phpstan-ignore-next-line
+		\WC()->customer = null;
+		// @phpstan-ignore-next-line
+		\WC()->cart = null;
+		// @phpstan-ignore-next-line
+		\WC()->session = null;
+
+		wc_load_cart();
+
+		// Ensure cart contents are restored from the session after re-initialization.
+		\WC()->cart->get_cart_from_session(); // @phpstan-ignore-line
 	}
 
 	/**
@@ -70,7 +141,7 @@ class WooCommerce_Filters {
 	 *
 	 * @param string $field  URL field slug.
 	 *
-	 * @return string null
+	 * @return string|null
 	 */
 	public static function get_authorizing_url_nonce_param_name( $field ) {
 		$flag_name      = strtoupper( $field );
@@ -88,14 +159,36 @@ class WooCommerce_Filters {
 	 * @return boolean
 	 */
 	public static function should_load_session_handler() {
+		// Any request carrying either the Store-API Cart-Token header or the
+		// legacy `woocommerce-session` (filterable) header is a headless
+		// caller driving session state through the token, regardless of
+		// which WP endpoint it lands on (admin-ajax, REST, the front-end,
+		// etc.). We need QL_Session_Handler here too so the session is
+		// bootstrapped from the token instead of the (absent) WC session
+		// cookie.
+		$legacy_header_key  = 'HTTP_' . strtoupper(
+			preg_replace(
+				'#[^A-z0-9]#',
+				'_',
+				apply_filters( 'graphql_woocommerce_cart_session_http_header', 'woocommerce-session' )
+			)
+		);
+		$has_session_header = ! empty( $_SERVER['HTTP_CART_TOKEN'] ) // phpcs:ignore WordPress.Security.ValidatedSanitizedInput.InputNotSanitized, WordPress.Security.ValidatedSanitizedInput.MissingUnslash
+			|| ! empty( $_SERVER[ $legacy_header_key ] ); // phpcs:ignore WordPress.Security.ValidatedSanitizedInput.InputNotSanitized, WordPress.Security.ValidatedSanitizedInput.MissingUnslash
+
 		switch ( true ) {
 			case \WPGraphQL\Router::is_graphql_http_request():
 			//phpcs:disable
 			case 'on' === woographql_setting( 'enable_ql_session_handler_on_ajax', 'off' )
-				&& ( ! empty( $_GET['wc-ajax'] ) || defined( 'WC_DOING_AJAX' ) ):
+				&& (
+					! empty( $_GET['wc-ajax'] )
+					|| defined( 'WC_DOING_AJAX' )
+					|| wp_doing_ajax()
+					|| $has_session_header
+				):
 			//phpcs:enable
 			case 'on' === woographql_setting( 'enable_ql_session_handler_on_rest', 'off' )
-				&& ( defined( 'REST_REQUEST' ) && REST_REQUEST ):
+				&& ( ( defined( 'REST_REQUEST' ) && REST_REQUEST ) || $has_session_header ):
 				return true;
 			default:
 				return false;
@@ -149,35 +242,6 @@ class WooCommerce_Filters {
 	}
 
 	/**
-	 * Adds extra arguments to the Stripe Gateway process payment call.
-	 *
-	 * @param array  $gateway_args    Arguments to be passed to the gateway `process_payment` method.
-	 * @param string $payment_method  Payment gateway ID.
-	 *
-	 * @return array
-	 */
-	public static function woographql_stripe_gateway_args( $gateway_args, $payment_method ) {
-		/** @var false|\WC_Order|\WC_Order_Refund $order */
-		$order = wc_get_order( $gateway_args[0] );
-		if ( false === $order ) {
-			return $gateway_args;
-		}
-
-		$stripe_source_id = $order->get_meta( '_stripe_source_id' );
-		if ( 'stripe' === $payment_method && ! empty( $stripe_source_id ) ) {
-			$gateway_args = [
-				$gateway_args[0],
-				true,
-				false,
-				false,
-				true,
-			];
-		}
-
-		return $gateway_args;
-	}
-
-	/**
 	 * Customizes the password reset message for ResetPassword Mutation.
 	 *
 	 * This function modifies the password reset message to use WooCommerce's email template
@@ -227,5 +291,36 @@ class WooCommerce_Filters {
 		}
 
 		return $title;
+	}
+
+	/**
+	 * Authenticates pre-auth download requests before WooCommerce's download handler.
+	 *
+	 * Validates the token and sets the current user so WooCommerce's
+	 * is_user_logged_in() check passes during download processing.
+	 *
+	 * @return void
+	 */
+	public static function authenticate_pre_auth_download() {
+		// phpcs:disable WordPress.Security.NonceVerification.Recommended
+		if ( empty( $_GET['download_file'] ) || empty( $_GET['token'] ) || empty( $_GET['uid'] ) || empty( $_GET['expires'] ) ) {
+			return;
+		}
+
+		$customer_id = absint( $_GET['uid'] );
+		$expires     = absint( $_GET['expires'] );
+		$token       = sanitize_text_field( wp_unslash( $_GET['token'] ) );
+		$download_id = isset( $_GET['key'] ) ? sanitize_text_field( wp_unslash( $_GET['key'] ) ) : '';
+		// phpcs:enable WordPress.Security.NonceVerification.Recommended
+
+		if ( empty( $download_id ) ) {
+			return;
+		}
+
+		if ( ! Type\WPObject\Downloadable_Item_Type::validate_download_token( $customer_id, $download_id, $expires, $token ) ) {
+			return;
+		}
+
+		wp_set_current_user( $customer_id );
 	}
 }

@@ -8,8 +8,6 @@
 
 namespace WPGraphQL\WooCommerce\Type\WPInterface;
 
-use WPGraphQL\WooCommerce\Core_Schema_Filters as Core;
-
 /**
  * Class Product_With_Dimension
  */
@@ -24,10 +22,12 @@ class Product_With_Dimensions {
 		register_graphql_interface_type(
 			'ProductWithDimensions',
 			[
-				'description' => __( 'A physical product.', 'wp-graphql-woocommerce' ),
-				'interfaces'  => [ 'Node', 'Product' ],
+				'description' => static function () {
+					return __( 'A physical product.', 'graphql-for-ecommerce' );
+				},
+				'interfaces'  => [ 'Node' ],
 				'fields'      => self::get_fields(),
-				'resolveType' => [ Core::class, 'resolve_product_type' ],
+				'resolveType' => 'wc_graphql_resolve_product_type',
 			]
 		);
 	}
@@ -41,39 +41,57 @@ class Product_With_Dimensions {
 		return [
 			'id'               => [
 				'type'        => [ 'non_null' => 'ID' ],
-				'description' => __( 'Product or variation global ID', 'wp-graphql-woocommerce' ),
+				'description' => static function () {
+					return __( 'Product or variation global ID', 'graphql-for-ecommerce' );
+				},
 			],
 			'databaseId'       => [
 				'type'        => [ 'non_null' => 'Int' ],
-				'description' => __( 'Product or variation ID', 'wp-graphql-woocommerce' ),
+				'description' => static function () {
+					return __( 'Product or variation ID', 'graphql-for-ecommerce' );
+				},
 			],
 			'weight'           => [
 				'type'        => 'String',
-				'description' => __( 'Product\'s weight', 'wp-graphql-woocommerce' ),
+				'description' => static function () {
+					return __( 'Product\'s weight', 'graphql-for-ecommerce' );
+				},
 			],
 			'length'           => [
 				'type'        => 'String',
-				'description' => __( 'Product\'s length', 'wp-graphql-woocommerce' ),
+				'description' => static function () {
+					return __( 'Product\'s length', 'graphql-for-ecommerce' );
+				},
 			],
 			'width'            => [
 				'type'        => 'String',
-				'description' => __( 'Product\'s width', 'wp-graphql-woocommerce' ),
+				'description' => static function () {
+					return __( 'Product\'s width', 'graphql-for-ecommerce' );
+				},
 			],
 			'height'           => [
 				'type'        => 'String',
-				'description' => __( 'Product\'s height', 'wp-graphql-woocommerce' ),
+				'description' => static function () {
+					return __( 'Product\'s height', 'graphql-for-ecommerce' );
+				},
 			],
 			'shippingClassId'  => [
 				'type'        => 'Int',
-				'description' => __( 'shipping class ID', 'wp-graphql-woocommerce' ),
+				'description' => static function () {
+					return __( 'shipping class ID', 'graphql-for-ecommerce' );
+				},
 			],
 			'shippingRequired' => [
 				'type'        => 'Boolean',
-				'description' => __( 'Does product need to be shipped?', 'wp-graphql-woocommerce' ),
+				'description' => static function () {
+					return __( 'Does product need to be shipped?', 'graphql-for-ecommerce' );
+				},
 			],
 			'shippingTaxable'  => [
 				'type'        => 'Boolean',
-				'description' => __( 'Is product shipping taxable?', 'wp-graphql-woocommerce' ),
+				'description' => static function () {
+					return __( 'Is product shipping taxable?', 'graphql-for-ecommerce' );
+				},
 			],
 		];
 	}

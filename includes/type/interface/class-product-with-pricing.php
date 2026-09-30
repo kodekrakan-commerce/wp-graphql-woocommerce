@@ -8,8 +8,6 @@
 
 namespace WPGraphQL\WooCommerce\Type\WPInterface;
 
-use WPGraphQL\WooCommerce\Core_Schema_Filters as Core;
-
 /**
  * Class Product_With_Pricing
  */
@@ -24,10 +22,12 @@ class Product_With_Pricing {
 		register_graphql_interface_type(
 			'ProductWithPricing',
 			[
-				'description' => __( 'Products with pricing.', 'wp-graphql-woocommerce' ),
-				'interfaces'  => [ 'Node', 'Product' ],
+				'description' => static function () {
+					return __( 'Products with pricing.', 'graphql-for-ecommerce' );
+				},
+				'interfaces'  => [ 'Node' ],
 				'fields'      => self::get_fields(),
-				'resolveType' => [ Core::class, 'resolve_product_type' ],
+				'resolveType' => 'wc_graphql_resolve_product_type',
 			]
 		);
 	}
@@ -41,19 +41,27 @@ class Product_With_Pricing {
 		return [
 			'id'           => [
 				'type'        => [ 'non_null' => 'ID' ],
-				'description' => __( 'Product or variation global ID', 'wp-graphql-woocommerce' ),
+				'description' => static function () {
+					return __( 'Product or variation global ID', 'graphql-for-ecommerce' );
+				},
 			],
 			'databaseId'   => [
 				'type'        => [ 'non_null' => 'Int' ],
-				'description' => __( 'Product or variation ID', 'wp-graphql-woocommerce' ),
+				'description' => static function () {
+					return __( 'Product or variation ID', 'graphql-for-ecommerce' );
+				},
 			],
 			'price'        => [
 				'type'        => 'String',
-				'description' => __( 'Product\'s active price', 'wp-graphql-woocommerce' ),
+				'description' => static function () {
+					return __( 'Product\'s active price', 'graphql-for-ecommerce' );
+				},
 				'args'        => [
 					'format' => [
 						'type'        => 'PricingFieldFormatEnum',
-						'description' => __( 'Format of the price', 'wp-graphql-woocommerce' ),
+						'description' => static function () {
+							return __( 'Format of the price', 'graphql-for-ecommerce' );
+						},
 					],
 				],
 				'resolve'     => static function ( $source, $args ) {
@@ -61,7 +69,6 @@ class Product_With_Pricing {
                         // @codingStandardsIgnoreLine.
                         return $source->priceRaw;
 					} else {
-						graphql_debug( $source->price );
 						// @codingStandardsIgnoreLine.
 						return $source->price;
 					}
@@ -69,11 +76,15 @@ class Product_With_Pricing {
 			],
 			'regularPrice' => [
 				'type'        => 'String',
-				'description' => __( 'Product\'s regular price', 'wp-graphql-woocommerce' ),
+				'description' => static function () {
+					return __( 'Product\'s regular price', 'graphql-for-ecommerce' );
+				},
 				'args'        => [
 					'format' => [
 						'type'        => 'PricingFieldFormatEnum',
-						'description' => __( 'Format of the price', 'wp-graphql-woocommerce' ),
+						'description' => static function () {
+							return __( 'Format of the price', 'graphql-for-ecommerce' );
+						},
 					],
 				],
 				'resolve'     => static function ( $source, $args ) {
@@ -88,11 +99,15 @@ class Product_With_Pricing {
 			],
 			'salePrice'    => [
 				'type'        => 'String',
-				'description' => __( 'Product\'s sale price', 'wp-graphql-woocommerce' ),
+				'description' => static function () {
+					return __( 'Product\'s sale price', 'graphql-for-ecommerce' );
+				},
 				'args'        => [
 					'format' => [
 						'type'        => 'PricingFieldFormatEnum',
-						'description' => __( 'Format of the price', 'wp-graphql-woocommerce' ),
+						'description' => static function () {
+							return __( 'Format of the price', 'graphql-for-ecommerce' );
+						},
 					],
 				],
 				'resolve'     => static function ( $source, $args ) {
@@ -107,11 +122,15 @@ class Product_With_Pricing {
 			],
 			'taxStatus'    => [
 				'type'        => 'TaxStatusEnum',
-				'description' => __( 'Tax status', 'wp-graphql-woocommerce' ),
+				'description' => static function () {
+					return __( 'Tax status', 'graphql-for-ecommerce' );
+				},
 			],
 			'taxClass'     => [
 				'type'        => 'TaxClassEnum',
-				'description' => __( 'Tax class', 'wp-graphql-woocommerce' ),
+				'description' => static function () {
+					return __( 'Tax class', 'graphql-for-ecommerce' );
+				},
 			],
 		];
 	}

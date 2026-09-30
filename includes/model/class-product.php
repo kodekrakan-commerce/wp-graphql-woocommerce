@@ -92,6 +92,7 @@ use GraphQLRelay\Relay;
  *
  * @property int[]         $variation_ids
  *
+ * @mixin \WC_Product
  * @package WPGraphQL\WooCommerce\Model
  */
 class Product extends WC_Post {
@@ -101,6 +102,14 @@ class Product extends WC_Post {
 	 * @var string
 	 */
 	protected $product_type;
+
+	/**
+	 * Cached variation prices to avoid redundant lookups across
+	 * multiple pricing fields (price, regularPrice, salePrice, etc.).
+	 *
+	 * @var array|null
+	 */
+	private $variation_prices = null;
 
 	/**
 	 * Stores product factory.
@@ -122,7 +131,7 @@ class Product extends WC_Post {
 
 		// Check if product is valid.
 		if ( ! is_object( $data ) ) {
-			throw new \Exception( __( 'Failed to retrieve product data source', 'wp-graphql-woocommerce' ) );
+			throw new \Exception( __( 'Failed to retrieve product data source', 'graphql-for-ecommerce' ) );
 		}
 
 		parent::__construct( $data );
@@ -163,7 +172,10 @@ class Product extends WC_Post {
 		 */
 		$data = $this->wc_data;
 
-		$prices = $data->get_variation_prices( true );
+		if ( is_null( $this->variation_prices ) ) {
+			$this->variation_prices = $data->get_variation_prices( true );
+		}
+		$prices = $this->variation_prices;
 
 		if ( empty( $prices['price'] ) || ( 'sale' === $pricing_type && ! $this->wc_data->is_on_sale() ) ) {
 			return null;

@@ -21,19 +21,27 @@ class Meta_Data_Input {
 		register_graphql_input_type(
 			'MetaDataInput',
 			[
-				'description' => __( 'Meta data.', 'wp-graphql-woocommerce' ),
+				'description' => static function () {
+					return __( 'Meta data.', 'graphql-for-ecommerce' );
+				},
 				'fields'      => [
 					'id'    => [
 						'type'        => 'String',
-						'description' => __( 'Meta ID.', 'wp-graphql-woocommerce' ),
+						'description' => static function () {
+							return __( 'Meta ID.', 'graphql-for-ecommerce' );
+						},
 					],
 					'key'   => [
 						'type'        => [ 'non_null' => 'String' ],
-						'description' => __( 'Meta key.', 'wp-graphql-woocommerce' ),
+						'description' => static function () {
+							return __( 'Meta key.', 'graphql-for-ecommerce' );
+						},
 					],
 					'value' => [
 						'type'        => [ 'non_null' => 'String' ],
-						'description' => __( 'Meta value.', 'wp-graphql-woocommerce' ),
+						'description' => static function () {
+							return __( 'Meta value.', 'graphql-for-ecommerce' );
+						},
 					],
 				],
 			]

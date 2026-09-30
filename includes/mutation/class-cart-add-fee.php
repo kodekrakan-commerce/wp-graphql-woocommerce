@@ -44,19 +44,27 @@ class Cart_Add_Fee {
 		return [
 			'name'     => [
 				'type'        => [ 'non_null' => 'String' ],
-				'description' => __( 'Unique name for the fee.', 'wp-graphql-woocommerce' ),
+				'description' => static function () {
+					return __( 'Unique name for the fee.', 'graphql-for-ecommerce' );
+				},
 			],
 			'amount'   => [
 				'type'        => 'Float',
-				'description' => __( 'Fee amount', 'wp-graphql-woocommerce' ),
+				'description' => static function () {
+					return __( 'Fee amount', 'graphql-for-ecommerce' );
+				},
 			],
 			'taxable'  => [
 				'type'        => 'Boolean',
-				'description' => __( 'Is the fee taxable?', 'wp-graphql-woocommerce' ),
+				'description' => static function () {
+					return __( 'Is the fee taxable?', 'graphql-for-ecommerce' );
+				},
 			],
 			'taxClass' => [
 				'type'        => 'TaxClassEnum',
-				'description' => __( 'The tax class for the fee if taxable.', 'wp-graphql-woocommerce' ),
+				'description' => static function () {
+					return __( 'The tax class for the fee if taxable.', 'graphql-for-ecommerce' );
+				},
 			],
 		];
 	}
@@ -89,15 +97,15 @@ class Cart_Add_Fee {
 			Cart_Mutation::check_session_token();
 
 			if ( ! current_user_can( 'edit_shop_orders' ) ) {
-				throw new UserError( __( 'You do not have the appropriate capabilities to perform this action.', 'wp-graphql-woocommerce' ) );
+				throw new UserError( __( 'You do not have the appropriate capabilities to perform this action.', 'graphql-for-ecommerce' ) );
 			}
 
 			if ( empty( $input['name'] ) ) {
-				throw new UserError( __( 'No name provided for fee.', 'wp-graphql-woocommerce' ) );
+				throw new UserError( __( 'No name provided for fee.', 'graphql-for-ecommerce' ) );
 			}
 
 			if ( ! isset( $input['amount'] ) ) {
-				throw new UserError( __( 'No amount set for the fee.', 'wp-graphql-woocommerce' ) );
+				throw new UserError( __( 'No amount set for the fee.', 'graphql-for-ecommerce' ) );
 			}
 
 			// Get cart fee args.

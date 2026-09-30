@@ -77,8 +77,8 @@ class Variation_Attribute_Connection_Resolver {
 	public static function variation_attributes_to_data_array( $attrs, $variation_id ) {
 		$attributes = [];
 
-		// Bail early if explicitly '0' attributes.
-		if ( [ '0' ] === $attrs ) {
+		// Bail early if null or explicitly '0' attributes.
+		if ( ! is_array( $attrs ) || [ '0' ] === $attrs ) {
 			return $attributes;
 		}
 
@@ -94,6 +94,7 @@ class Variation_Attribute_Connection_Resolver {
 					'id'          => $id,
 					'attributeId' => 0,
 					'name'        => $name,
+					'label'       => $name,
 					'value'       => $value,
 				];
 			} else {
@@ -101,6 +102,7 @@ class Variation_Attribute_Connection_Resolver {
 					'id'          => $id,
 					'attributeId' => $term->term_id,
 					'name'        => $term->taxonomy,
+					'label'       => wc_attribute_label( $term->taxonomy ),
 					'value'       => $term->slug,
 				];
 			}

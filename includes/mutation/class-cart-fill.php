@@ -45,15 +45,21 @@ class Cart_Fill {
 		return [
 			'shippingMethods' => [
 				'type'        => [ 'list_of' => 'String' ],
-				'description' => __( 'Shipping methods to be used.', 'wp-graphql-woocommerce' ),
+				'description' => static function () {
+					return __( 'Shipping methods to be used.', 'graphql-for-ecommerce' );
+				},
 			],
 			'coupons'         => [
 				'type'        => [ 'list_of' => 'String' ],
-				'description' => __( 'Coupons to be applied to the cart', 'wp-graphql-woocommerce' ),
+				'description' => static function () {
+					return __( 'Coupons to be applied to the cart', 'graphql-for-ecommerce' );
+				},
 			],
 			'items'           => [
 				'type'        => [ 'list_of' => 'CartItemInput' ],
-				'description' => __( 'Cart items to be added', 'wp-graphql-woocommerce' ),
+				'description' => static function () {
+					return __( 'Cart items to be added', 'graphql-for-ecommerce' );
+				},
 			],
 		];
 	}
@@ -155,7 +161,7 @@ class Cart_Fill {
 
 			// Throw error, if no cart item data provided.
 			if ( empty( $input['items'] ) ) {
-				throw new UserError( __( 'No cart item data provided', 'wp-graphql-woocommerce' ) );
+				throw new UserError( __( 'No cart item data provided', 'graphql-for-ecommerce' ) );
 			}
 
 			// Validate cart item input.
@@ -183,7 +189,7 @@ class Cart_Fill {
 
 						$invalid_cart_items[] = compact( 'cart_item_data', 'reasons' );
 					} else {
-						$reason               = __( 'Failed to add cart item. Please check input.', 'wp-graphql-woocommerce' );
+						$reason               = __( 'Failed to add cart item. Please check input.', 'graphql-for-ecommerce' );
 						$invalid_cart_items[] = compact( 'cart_item_data', 'reason' );
 					}
 				} catch ( \Throwable $e ) {
@@ -202,7 +208,7 @@ class Cart_Fill {
 
 			// Throw error, if no items added.
 			if ( empty( $added ) ) {
-				throw new UserError( __( 'Failed to add any cart items. Please check input.', 'wp-graphql-woocommerce' ) );
+				throw new UserError( __( 'Failed to add any cart items. Please check input.', 'graphql-for-ecommerce' ) );
 			}
 
 			$applied         = [];
@@ -225,7 +231,7 @@ class Cart_Fill {
 
 					// Throw any capture errors.
 					if ( empty( $reason ) ) {
-						$reason = __( 'Failed to apply coupon. Check for an individual-use coupon on cart.', 'wp-graphql-woocommerce' );
+						$reason = __( 'Failed to apply coupon. Check for an individual-use coupon on cart.', 'graphql-for-ecommerce' );
 					}
 
 					$invalid_coupons[] = compact( 'code', 'reason' );

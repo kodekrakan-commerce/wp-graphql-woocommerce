@@ -45,23 +45,33 @@ class Shipping_Zone_Method_Update {
 		return [
 			'zoneId'     => [
 				'type'        => [ 'non_null' => 'Int' ],
-				'description' => __( 'The ID of the shipping zone to delete.', 'wp-graphql-woocommerce' ),
+				'description' => static function () {
+					return __( 'The ID of the shipping zone to delete.', 'graphql-for-ecommerce' );
+				},
 			],
 			'instanceId' => [
 				'type'        => [ 'non_null' => 'Int' ],
-				'description' => __( 'Shipping method instance ID', 'wp-graphql-woocommerce' ),
+				'description' => static function () {
+					return __( 'Shipping method instance ID', 'graphql-for-ecommerce' );
+				},
 			],
 			'enabled'    => [
 				'type'        => 'Boolean',
-				'description' => __( 'Whether the shipping method is enabled or not.', 'wp-graphql-woocommerce' ),
+				'description' => static function () {
+					return __( 'Whether the shipping method is enabled or not.', 'graphql-for-ecommerce' );
+				},
 			],
 			'order'      => [
 				'type'        => 'Int',
-				'description' => __( 'The order of the shipping method.', 'wp-graphql-woocommerce' ),
+				'description' => static function () {
+					return __( 'The order of the shipping method.', 'graphql-for-ecommerce' );
+				},
 			],
 			'settings'   => [
 				'type'        => [ 'list_of' => 'WCSettingInput' ],
-				'description' => __( 'The settings for the shipping method.', 'wp-graphql-woocommerce' ),
+				'description' => static function () {
+					return __( 'The settings for the shipping method.', 'graphql-for-ecommerce' );
+				},
 			],
 		];
 	}
@@ -100,11 +110,11 @@ class Shipping_Zone_Method_Update {
 	public static function mutate_and_get_payload() {
 		return static function ( $input, AppContext $context, ResolveInfo $info ) {
 			if ( ! \wc_shipping_enabled() ) {
-				throw new UserError( __( 'Shipping is disabled.', 'wp-graphql-woocommerce' ), 404 );
+				throw new UserError( __( 'Shipping is disabled.', 'graphql-for-ecommerce' ), 404 );
 			}
 
 			if ( ! \wc_rest_check_manager_permissions( 'settings', 'edit' ) ) {
-				throw new UserError( __( 'Sorry, you are not allowed to edit shipping methods.', 'wp-graphql-woocommerce' ), \rest_authorization_required_code() );
+				throw new UserError( __( 'Sorry, you are not allowed to edit shipping methods.', 'graphql-for-ecommerce' ), \rest_authorization_required_code() );
 			}
 			$instance_id = $input['instanceId'];
 			$zone_id     = $input['zoneId'];
@@ -112,11 +122,11 @@ class Shipping_Zone_Method_Update {
 			$zone = \WC_Shipping_Zones::get_zone_by( 'zone_id', $zone_id );
 
 			if ( false === $zone ) {
-				throw new UserError( __( 'Invalid shipping zone ID.', 'wp-graphql-woocommerce' ) );
+				throw new UserError( __( 'Invalid shipping zone ID.', 'graphql-for-ecommerce' ) );
 			}
 
 			if ( 0 === $zone->get_id() ) {
-				throw new UserError( __( 'Invalid shipping zone ID.', 'wp-graphql-woocommerce' ) );
+				throw new UserError( __( 'Invalid shipping zone ID.', 'graphql-for-ecommerce' ) );
 			}
 
 			$methods = $zone->get_shipping_methods();
@@ -130,7 +140,7 @@ class Shipping_Zone_Method_Update {
 			}
 
 			if ( ! $method ) {
-				throw new UserError( __( 'Invalid shipping method instance ID.', 'wp-graphql-woocommerce' ) );
+				throw new UserError( __( 'Invalid shipping method instance ID.', 'graphql-for-ecommerce' ) );
 			}
 
 			// Update settings.

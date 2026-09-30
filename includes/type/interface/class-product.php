@@ -25,25 +25,28 @@ class Product {
 	 * @return void
 	 */
 	public static function register_interface() {
-
 		// Register the fields to the Product Interface
 		// the product interface is defined by the post_type registration.
-		register_graphql_fields( 'Product', self::get_fields() );
-
 		register_graphql_field(
 			'RootQuery',
 			'product',
 			[
 				'type'        => 'Product',
-				'description' => __( 'A product object', 'wp-graphql-woocommerce' ),
+				'description' => static function () {
+					return __( 'A product object', 'graphql-for-ecommerce' );
+				},
 				'args'        => [
 					'id'     => [
 						'type'        => [ 'non_null' => 'ID' ],
-						'description' => __( 'The ID for identifying the product', 'wp-graphql-woocommerce' ),
+						'description' => static function () {
+							return __( 'The ID for identifying the product', 'graphql-for-ecommerce' );
+						},
 					],
 					'idType' => [
 						'type'        => 'ProductIdTypeEnum',
-						'description' => __( 'Type of ID being used identify product', 'wp-graphql-woocommerce' ),
+						'description' => static function () {
+							return __( 'Type of ID being used identify product', 'graphql-for-ecommerce' );
+						},
 					],
 				],
 				'resolve'     => static function ( $source, array $args, AppContext $context ) {
@@ -56,8 +59,18 @@ class Product {
 							$product_id = \wc_get_product_id_by_sku( $id );
 							break;
 						case 'slug':
-							$post       = get_page_by_path( $id, OBJECT, 'product' );
-							$product_id = ! empty( $post ) ? absint( $post->ID ) : 0;
+							$query = new \WP_Query(
+								[
+									'name'           => $id,
+									'post_type'      => 'product',
+									'post_status'    => 'publish',
+									'posts_per_page' => 1,
+									'fields'         => 'ids',
+								]
+							);
+							/** @var int $post_id */
+							$post_id    = ! empty( $query->posts ) ? $query->posts[0] : 0;
+							$product_id = absint( $post_id );
 							break;
 						case 'database_id':
 							$product_id = absint( $id );
@@ -66,7 +79,7 @@ class Product {
 						default:
 							$id_components = Relay::fromGlobalId( $id );
 							if ( empty( $id_components['id'] ) || empty( $id_components['type'] ) ) {
-								throw new UserError( __( 'The "global ID" is invalid', 'wp-graphql-woocommerce' ) );
+								throw new UserError( __( 'The "global ID" is invalid', 'graphql-for-ecommerce' ) );
 							}
 							$product_id = absint( $id_components['id'] );
 							break;
@@ -74,12 +87,12 @@ class Product {
 
 					if ( empty( $product_id ) ) {
 						/* translators: %1$s: ID type, %2$s: ID value */
-						throw new UserError( sprintf( __( 'No product ID was found corresponding to the %1$s: %2$s', 'wp-graphql-woocommerce' ), $id_type, $id ) );
+						throw new UserError( sprintf( __( 'No product ID was found corresponding to the %1$s: %2$s', 'graphql-for-ecommerce' ), $id_type, $id ) );
 					}
 					$product = get_post( $product_id );
 					if ( ! is_object( $product ) || 'product' !== $product->post_type ) {
 						/* translators: %1$s: ID type, %2$s: ID value */
-						throw new UserError( sprintf( __( 'No product exists with the %1$s: %2$s', 'wp-graphql-woocommerce' ), $id_type, $id ) );
+						throw new UserError( sprintf( __( 'No product exists with the %1$s: %2$s', 'graphql-for-ecommerce' ), $id_type, $id ) );
 					}
 
 					return Factory::resolve_crud_object( $product_id, $context );
@@ -97,27 +110,39 @@ class Product {
 		return [
 			'type'              => [
 				'type'        => 'ProductTypesEnum',
-				'description' => __( 'Product type', 'wp-graphql-woocommerce' ),
+				'description' => static function () {
+					return __( 'Product type', 'graphql-for-ecommerce' );
+				},
 			],
 			'name'              => [
 				'type'        => 'String',
-				'description' => __( 'Product name', 'wp-graphql-woocommerce' ),
+				'description' => static function () {
+					return __( 'Product name', 'graphql-for-ecommerce' );
+				},
 			],
 			'featured'          => [
 				'type'        => 'Boolean',
-				'description' => __( 'If the product is featured', 'wp-graphql-woocommerce' ),
+				'description' => static function () {
+					return __( 'If the product is featured', 'graphql-for-ecommerce' );
+				},
 			],
 			'catalogVisibility' => [
 				'type'        => 'CatalogVisibilityEnum',
-				'description' => __( 'Catalog visibility', 'wp-graphql-woocommerce' ),
+				'description' => static function () {
+					return __( 'Catalog visibility', 'graphql-for-ecommerce' );
+				},
 			],
 			'description'       => [
 				'type'        => 'String',
-				'description' => __( 'Product description', 'wp-graphql-woocommerce' ),
+				'description' => static function () {
+					return __( 'Product description', 'graphql-for-ecommerce' );
+				},
 				'args'        => [
 					'format' => [
 						'type'        => 'PostObjectFieldFormatEnum',
-						'description' => __( 'Format of the field output', 'wp-graphql-woocommerce' ),
+						'description' => static function () {
+							return __( 'Format of the field output', 'graphql-for-ecommerce' );
+						},
 					],
 				],
 				'resolve'     => static function ( $source, $args ) {
@@ -130,11 +155,15 @@ class Product {
 			],
 			'shortDescription'  => [
 				'type'        => 'String',
-				'description' => __( 'Product short description', 'wp-graphql-woocommerce' ),
+				'description' => static function () {
+					return __( 'Product short description', 'graphql-for-ecommerce' );
+				},
 				'args'        => [
 					'format' => [
 						'type'        => 'PostObjectFieldFormatEnum',
-						'description' => __( 'Format of the field output', 'wp-graphql-woocommerce' ),
+						'description' => static function () {
+							return __( 'Format of the field output', 'graphql-for-ecommerce' );
+						},
 					],
 				],
 				'resolve'     => static function ( $source, $args ) {
@@ -148,43 +177,63 @@ class Product {
 			],
 			'sku'               => [
 				'type'        => 'String',
-				'description' => __( 'Product SKU', 'wp-graphql-woocommerce' ),
+				'description' => static function () {
+					return __( 'Product SKU', 'graphql-for-ecommerce' );
+				},
 			],
 			'dateOnSaleFrom'    => [
 				'type'        => 'String',
-				'description' => __( 'Date on sale from', 'wp-graphql-woocommerce' ),
+				'description' => static function () {
+					return __( 'Date on sale from', 'graphql-for-ecommerce' );
+				},
 			],
 			'dateOnSaleTo'      => [
 				'type'        => 'String',
-				'description' => __( 'Date on sale to', 'wp-graphql-woocommerce' ),
+				'description' => static function () {
+					return __( 'Date on sale to', 'graphql-for-ecommerce' );
+				},
 			],
 			'totalSales'        => [
 				'type'        => 'Int',
-				'description' => __( 'Number total of sales', 'wp-graphql-woocommerce' ),
+				'description' => static function () {
+					return __( 'Number total of sales', 'graphql-for-ecommerce' );
+				},
 			],
 			'reviewsAllowed'    => [
 				'type'        => 'Boolean',
-				'description' => __( 'If reviews are allowed', 'wp-graphql-woocommerce' ),
+				'description' => static function () {
+					return __( 'If reviews are allowed', 'graphql-for-ecommerce' );
+				},
 			],
 			'purchaseNote'      => [
 				'type'        => 'String',
-				'description' => __( 'Purchase note', 'wp-graphql-woocommerce' ),
+				'description' => static function () {
+					return __( 'Purchase note', 'graphql-for-ecommerce' );
+				},
 			],
 			'menuOrder'         => [
 				'type'        => 'Int',
-				'description' => __( 'Menu order', 'wp-graphql-woocommerce' ),
+				'description' => static function () {
+					return __( 'Menu order', 'graphql-for-ecommerce' );
+				},
 			],
 			'averageRating'     => [
 				'type'        => 'Float',
-				'description' => __( 'Product average count', 'wp-graphql-woocommerce' ),
+				'description' => static function () {
+					return __( 'Product average count', 'graphql-for-ecommerce' );
+				},
 			],
 			'reviewCount'       => [
 				'type'        => 'Int',
-				'description' => __( 'Product review count', 'wp-graphql-woocommerce' ),
+				'description' => static function () {
+					return __( 'Product review count', 'graphql-for-ecommerce' );
+				},
 			],
 			'image'             => [
 				'type'        => 'MediaItem',
-				'description' => __( 'Main image', 'wp-graphql-woocommerce' ),
+				'description' => static function () {
+					return __( 'Main image', 'graphql-for-ecommerce' );
+				},
 				'resolve'     => static function ( $source, array $args, AppContext $context ) {
 					// @codingStandardsIgnoreLine.
 					if ( empty( $source->image_id ) || ! absint( $source->image_id ) ) {
@@ -195,15 +244,21 @@ class Product {
 			],
 			'onSale'            => [
 				'type'        => 'Boolean',
-				'description' => __( 'Is product on sale?', 'wp-graphql-woocommerce' ),
+				'description' => static function () {
+					return __( 'Is product on sale?', 'graphql-for-ecommerce' );
+				},
 			],
 			'purchasable'       => [
 				'type'        => 'Boolean',
-				'description' => __( 'Can product be purchased?', 'wp-graphql-woocommerce' ),
+				'description' => static function () {
+					return __( 'Can product be purchased?', 'graphql-for-ecommerce' );
+				},
 			],
 			'virtual'           => [
 				'type'        => 'Boolean',
-				'description' => __( 'Is product virtual?', 'wp-graphql-woocommerce' ),
+				'description' => static function () {
+					return __( 'Is product virtual?', 'graphql-for-ecommerce' );
+				},
 			],
 			'metaData'          => \WPGraphQL\WooCommerce\Type\WPObject\Meta_Data_Type::get_metadata_field_definition(),
 		];

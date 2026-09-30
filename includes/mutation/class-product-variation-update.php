@@ -1,0 +1,69 @@
+<?php
+/**
+ * Mutation - updateProductVariation
+ *
+ * Registers mutation for updating a product variation.
+ *
+ * @package WPGraphQL\WooCommerce\Mutation
+ * @since 1.0.0
+ */
+
+namespace WPGraphQL\WooCommerce\Mutation;
+
+use WPGraphQL\WooCommerce\Model\Product_Variation;
+
+/**
+ * Class Product_Variation_Update
+ */
+class Product_Variation_Update {
+	/**
+	 * Registers mutation
+	 *
+	 * @return void
+	 */
+	public static function register_mutation() {
+		register_graphql_mutation(
+			'updateProductVariation',
+			[
+				'inputFields'         => self::get_input_fields(),
+				'outputFields'        => self::get_output_fields(),
+				'mutateAndGetPayload' => [ Product_Variation_Create::class, 'mutate_and_get_payload' ],
+			]
+		);
+	}
+
+	/**
+	 * Defines the mutation input field configuration
+	 *
+	 * @return array
+	 */
+	public static function get_input_fields() {
+		return array_merge(
+			[
+				'id' => [
+					'type'        => [ 'non_null' => 'ID' ],
+					'description' => static function () {
+						return __( 'Unique identifier for the product.', 'graphql-for-ecommerce' );
+					},
+				],
+			],
+			Product_Variation_Create::get_input_fields()
+		);
+	}
+
+	/**
+	 * Defines the mutation output field configuration
+	 *
+	 * @return array
+	 */
+	public static function get_output_fields() {
+		return [
+			'variation' => [
+				'type'    => 'ProductVariation',
+				'resolve' => static function ( $payload ) {
+					return new Product_Variation( $payload['id'] );
+				},
+			],
+		];
+	}
+}

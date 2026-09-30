@@ -1,8 +1,8 @@
 <?php
 /**
- * WPObject Type - WC_Setting_Type
+ * WPObject Types - WC_Setting_Type
  *
- * Registers WCSetting WPObject type
+ * Registers WCSetting concrete implementations and helper types.
  *
  * @package WPGraphQL\WooCommerce\Type\WPObject
  * @since   0.20.0
@@ -15,71 +15,199 @@ namespace WPGraphQL\WooCommerce\Type\WPObject;
  */
 class WC_Setting_Type {
 	/**
-	 * Registers WC setting type
+	 * Registers WCSetting concrete types and helper object types.
 	 *
 	 * @return void
 	 */
 	public static function register() {
+		self::register_helper_types();
+		self::register_concrete_types();
+	}
+
+	/**
+	 * Registers helper object types used by setting value fields.
+	 *
+	 * @return void
+	 */
+	private static function register_helper_types() {
 		register_graphql_object_type(
-			'WCSetting',
+			'WCRelativeDate',
 			[
 				'eagerlyLoadType' => true,
-				'description'     => __( 'A WC setting object', 'wp-graphql-woocommerce' ),
+				'description'     => static function () {
+					return __( 'A relative date value with a number and unit.', 'graphql-for-ecommerce' );
+				},
 				'fields'          => [
-					'id'          => [
-						'type'        => [ 'non_null' => 'ID' ],
-						'description' => __( 'The globally unique identifier for the WC setting.', 'wp-graphql-woocommerce' ),
-						'resolve'     => static function ( $source, array $args, $context, $info ) {
-							return ! empty( $source['id'] ) ? $source['id'] : null;
+					'number' => [
+						'type'        => 'Int',
+						'description' => static function () {
+							return __( 'The number of periods.', 'graphql-for-ecommerce' );
+						},
+						'resolve'     => static function ( $source ) {
+							$number = $source['number'] ?? '';
+							return '' !== $number ? absint( $number ) : null;
 						},
 					],
-					'label'       => [
+					'unit'   => [
 						'type'        => 'String',
-						'description' => __( 'A human readable label for the setting used in user interfaces.', 'wp-graphql-woocommerce' ),
-						'resolve'     => static function ( $source, array $args, $context, $info ) {
-							return ! empty( $source['title'] ) ? $source['title'] : null;
+						'description' => static function () {
+							return __( 'The period unit (days, weeks, months, years).', 'graphql-for-ecommerce' );
 						},
 					],
-					'description' => [
+				],
+			]
+		);
+
+		register_graphql_object_type(
+			'WCImageWidth',
+			[
+				'eagerlyLoadType' => true,
+				'description'     => static function () {
+					return __( 'An image width value with dimensions and crop flag.', 'graphql-for-ecommerce' );
+				},
+				'fields'          => [
+					'width'  => [
+						'type'        => 'Int',
+						'description' => static function () {
+							return __( 'Image width in pixels.', 'graphql-for-ecommerce' );
+						},
+					],
+					'height' => [
+						'type'        => 'Int',
+						'description' => static function () {
+							return __( 'Image height in pixels.', 'graphql-for-ecommerce' );
+						},
+					],
+					'crop'   => [
+						'type'        => 'Boolean',
+						'description' => static function () {
+							return __( 'Whether to crop the image.', 'graphql-for-ecommerce' );
+						},
+						'resolve'     => static function ( $source ) {
+							return ! empty( $source['crop'] );
+						},
+					],
+				],
+			]
+		);
+	}
+
+	/**
+	 * Registers concrete setting types that implement the WCSetting interface.
+	 *
+	 * @return void
+	 */
+	private static function register_concrete_types() {
+		register_graphql_object_type(
+			'WCStringSetting',
+			[
+				'eagerlyLoadType' => true,
+				'description'     => static function () {
+					return __( 'A WC setting with a string value.', 'graphql-for-ecommerce' );
+				},
+				'interfaces'      => [ 'WCSetting' ],
+				'fields'          => [
+					'value'   => [
 						'type'        => 'String',
-						'description' => __( 'A human readable description for the setting used in user interfaces.', 'wp-graphql-woocommerce' ),
-						'resolve'     => static function ( $source, array $args, $context, $info ) {
-							return ! empty( $source['description'] ) ? $source['description'] : null;
+						'description' => static function () {
+							return __( 'Setting value.', 'graphql-for-ecommerce' );
+						},
+						'resolve'     => static function ( $source ) {
+							$value = $source['value'] ?? null;
+							return is_scalar( $value ) ? (string) $value : null;
 						},
 					],
-					'type'        => [
-						'type'        => 'WCSettingTypeEnum',
-						'description' => __( 'Type of setting.', 'wp-graphql-woocommerce' ),
-						'resolve'     => static function ( $source, array $args, $context, $info ) {
-							return ! empty( $source['type'] ) ? $source['type'] : null;
-						},
-					],
-					'value'       => [
+					'default' => [
 						'type'        => 'String',
-						'description' => __( 'Setting value.', 'wp-graphql-woocommerce' ),
-						'resolve'     => static function ( $source, array $args, $context, $info ) {
-							return ! empty( $source['value'] ) ? $source['value'] : null;
+						'description' => static function () {
+							return __( 'Default value for the setting.', 'graphql-for-ecommerce' );
+						},
+						'resolve'     => static function ( $source ) {
+							$value = $source['default'] ?? null;
+							return ! empty( $value ) && is_scalar( $value ) ? (string) $value : null;
 						},
 					],
-					'default'     => [
-						'type'        => 'String',
-						'description' => __( 'Default value for the setting.', 'wp-graphql-woocommerce' ),
-						'resolve'     => static function ( $source, array $args, $context, $info ) {
-							return ! empty( $source['default'] ) ? $source['default'] : null;
+				],
+			]
+		);
+
+		register_graphql_object_type(
+			'WCArraySetting',
+			[
+				'eagerlyLoadType' => true,
+				'description'     => static function () {
+					return __( 'A WC setting with an array value.', 'graphql-for-ecommerce' );
+				},
+				'interfaces'      => [ 'WCSetting' ],
+				'fields'          => [
+					'value'   => [
+						'type'        => [ 'list_of' => 'String' ],
+						'description' => static function () {
+							return __( 'Setting value as a list of strings.', 'graphql-for-ecommerce' );
+						},
+						'resolve'     => static function ( $source ) {
+							$value = $source['value'] ?? null;
+							return is_array( $value ) ? array_values( $value ) : null;
 						},
 					],
-					'tip'         => [
-						'type'        => 'String',
-						'description' => __( 'Additional help text shown to the user about the setting', 'wp-graphql-woocommerce' ),
-						'resolve'     => static function ( $source, array $args, $context, $info ) {
-							return ! empty( $source['desc_tip'] ) ? $source['desc_tip'] : null;
+					'default' => [
+						'type'        => [ 'list_of' => 'String' ],
+						'description' => static function () {
+							return __( 'Default value as a list of strings.', 'graphql-for-ecommerce' );
+						},
+						'resolve'     => static function ( $source ) {
+							$value = $source['default'] ?? null;
+							return is_array( $value ) ? array_values( $value ) : null;
 						},
 					],
-					'placeholder' => [
-						'type'        => 'String',
-						'description' => __( 'Placeholder text to be displayed in text inputs.', 'wp-graphql-woocommerce' ),
-						'resolve'     => static function ( $source, array $args, $context, $info ) {
-							return ! empty( $source['placeholder'] ) ? $source['placeholder'] : null;
+				],
+			]
+		);
+
+		register_graphql_object_type(
+			'WCRelativeDateSetting',
+			[
+				'eagerlyLoadType' => true,
+				'description'     => static function () {
+					return __( 'A WC setting with a relative date value.', 'graphql-for-ecommerce' );
+				},
+				'interfaces'      => [ 'WCSetting' ],
+				'fields'          => [
+					'value'   => [
+						'type'        => 'WCRelativeDate',
+						'description' => static function () {
+							return __( 'Setting value as a relative date.', 'graphql-for-ecommerce' );
+						},
+					],
+					'default' => [
+						'type'        => 'WCRelativeDate',
+						'description' => static function () {
+							return __( 'Default value as a relative date.', 'graphql-for-ecommerce' );
+						},
+					],
+				],
+			]
+		);
+
+		register_graphql_object_type(
+			'WCImageWidthSetting',
+			[
+				'eagerlyLoadType' => true,
+				'description'     => static function () {
+					return __( 'A WC setting with an image width value.', 'graphql-for-ecommerce' );
+				},
+				'interfaces'      => [ 'WCSetting' ],
+				'fields'          => [
+					'value'   => [
+						'type'        => 'WCImageWidth',
+						'description' => static function () {
+							return __( 'Setting value as image dimensions.', 'graphql-for-ecommerce' );
+						},
+					],
+					'default' => [
+						'type'        => 'WCImageWidth',
+						'description' => static function () {
+							return __( 'Default value as image dimensions.', 'graphql-for-ecommerce' );
 						},
 					],
 				],

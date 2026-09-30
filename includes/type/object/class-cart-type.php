@@ -28,6 +28,7 @@ class Cart_Type {
 		self::register_cart_fee();
 		self::register_cart_tax();
 		self::register_applied_coupon();
+		self::register_cart_tax_line();
 		self::register_cart();
 	}
 
@@ -43,11 +44,15 @@ class Cart_Type {
 			[
 				'subtotal'                 => [
 					'type'        => 'String',
-					'description' => __( 'Cart subtotal', 'wp-graphql-woocommerce' ),
+					'description' => static function () {
+						return __( 'Cart subtotal', 'graphql-for-ecommerce' );
+					},
 					'args'        => [
 						'format' => [
 							'type'        => 'PricingFieldFormatEnum',
-							'description' => __( 'Format of the price', 'wp-graphql-woocommerce' ),
+							'description' => static function () {
+								return __( 'Format of the price', 'graphql-for-ecommerce' );
+							},
 						],
 					],
 					'resolve'     => static function ( $source, array $args ) {
@@ -62,11 +67,15 @@ class Cart_Type {
 				],
 				'subtotalTax'              => [
 					'type'        => 'String',
-					'description' => __( 'Cart subtotal tax', 'wp-graphql-woocommerce' ),
+					'description' => static function () {
+						return __( 'Cart subtotal tax', 'graphql-for-ecommerce' );
+					},
 					'args'        => [
 						'format' => [
 							'type'        => 'PricingFieldFormatEnum',
-							'description' => __( 'Format of the price', 'wp-graphql-woocommerce' ),
+							'description' => static function () {
+								return __( 'Format of the price', 'graphql-for-ecommerce' );
+							},
 						],
 					],
 					'resolve'     => static function ( $source, array $args ) {
@@ -81,11 +90,15 @@ class Cart_Type {
 				],
 				'discountTotal'            => [
 					'type'        => 'String',
-					'description' => __( 'Cart discount total', 'wp-graphql-woocommerce' ),
+					'description' => static function () {
+						return __( 'Cart discount total', 'graphql-for-ecommerce' );
+					},
 					'args'        => [
 						'format' => [
 							'type'        => 'PricingFieldFormatEnum',
-							'description' => __( 'Format of the price', 'wp-graphql-woocommerce' ),
+							'description' => static function () {
+								return __( 'Format of the price', 'graphql-for-ecommerce' );
+							},
 						],
 					],
 					'resolve'     => static function ( $source, array $args ) {
@@ -100,11 +113,15 @@ class Cart_Type {
 				],
 				'discountTax'              => [
 					'type'        => 'String',
-					'description' => __( 'Cart discount tax', 'wp-graphql-woocommerce' ),
+					'description' => static function () {
+						return __( 'Cart discount tax', 'graphql-for-ecommerce' );
+					},
 					'args'        => [
 						'format' => [
 							'type'        => 'PricingFieldFormatEnum',
-							'description' => __( 'Format of the price', 'wp-graphql-woocommerce' ),
+							'description' => static function () {
+								return __( 'Format of the price', 'graphql-for-ecommerce' );
+							},
 						],
 					],
 					'resolve'     => static function ( $source, array $args ) {
@@ -119,7 +136,9 @@ class Cart_Type {
 				],
 				'availableShippingMethods' => [
 					'type'        => [ 'list_of' => 'ShippingPackage' ],
-					'description' => __( 'Available shipping methods for this order.', 'wp-graphql-woocommerce' ),
+					'description' => static function () {
+						return __( 'Available shipping methods for this order.', 'graphql-for-ecommerce' );
+					},
 					'resolve'     => static function ( $source ) {
 						$packages = [];
 
@@ -137,7 +156,9 @@ class Cart_Type {
 				],
 				'chosenShippingMethods'    => [
 					'type'        => [ 'list_of' => 'String' ],
-					'description' => __( 'Shipping method chosen for this order.', 'wp-graphql-woocommerce' ),
+					'description' => static function () {
+						return __( 'Shipping method chosen for this order.', 'graphql-for-ecommerce' );
+					},
 					'resolve'     => static function ( $source ) {
 						$chosen_shipping_methods = [];
 
@@ -156,11 +177,15 @@ class Cart_Type {
 				],
 				'shippingTotal'            => [
 					'type'        => 'String',
-					'description' => __( 'Cart shipping total', 'wp-graphql-woocommerce' ),
+					'description' => static function () {
+						return __( 'Cart shipping total', 'graphql-for-ecommerce' );
+					},
 					'args'        => [
 						'format' => [
 							'type'        => 'PricingFieldFormatEnum',
-							'description' => __( 'Format of the price', 'wp-graphql-woocommerce' ),
+							'description' => static function () {
+								return __( 'Format of the price', 'graphql-for-ecommerce' );
+							},
 						],
 					],
 					'resolve'     => static function ( $source, array $args ) {
@@ -175,11 +200,15 @@ class Cart_Type {
 				],
 				'shippingTax'              => [
 					'type'        => 'String',
-					'description' => __( 'Cart shipping tax', 'wp-graphql-woocommerce' ),
+					'description' => static function () {
+						return __( 'Cart shipping tax', 'graphql-for-ecommerce' );
+					},
 					'args'        => [
 						'format' => [
 							'type'        => 'PricingFieldFormatEnum',
-							'description' => __( 'Format of the price', 'wp-graphql-woocommerce' ),
+							'description' => static function () {
+								return __( 'Format of the price', 'graphql-for-ecommerce' );
+							},
 						],
 					],
 					'resolve'     => static function ( $source, array $args ) {
@@ -194,11 +223,15 @@ class Cart_Type {
 				],
 				'contentsTotal'            => [
 					'type'        => 'String',
-					'description' => __( 'Cart contents total', 'wp-graphql-woocommerce' ),
+					'description' => static function () {
+						return __( 'Cart contents total', 'graphql-for-ecommerce' );
+					},
 					'args'        => [
 						'format' => [
 							'type'        => 'PricingFieldFormatEnum',
-							'description' => __( 'Format of the price', 'wp-graphql-woocommerce' ),
+							'description' => static function () {
+								return __( 'Format of the price', 'graphql-for-ecommerce' );
+							},
 						],
 					],
 					'resolve'     => static function ( $source, array $args ) {
@@ -221,11 +254,15 @@ class Cart_Type {
 				],
 				'contentsTax'              => [
 					'type'        => 'String',
-					'description' => __( 'Cart contents tax', 'wp-graphql-woocommerce' ),
+					'description' => static function () {
+						return __( 'Cart contents tax', 'graphql-for-ecommerce' );
+					},
 					'args'        => [
 						'format' => [
 							'type'        => 'PricingFieldFormatEnum',
-							'description' => __( 'Format of the price', 'wp-graphql-woocommerce' ),
+							'description' => static function () {
+								return __( 'Format of the price', 'graphql-for-ecommerce' );
+							},
 						],
 					],
 					'resolve'     => static function ( $source, array $args ) {
@@ -241,15 +278,20 @@ class Cart_Type {
 					},
 				],
 				'feeTotal'                 => [
-					'type'        => 'String',
-					'description' => __( 'Cart fee total', 'wp-graphql-woocommerce' ),
-					'args'        => [
+					'type'              => 'String',
+					'description'       => static function () {
+						return __( 'Cart fee total', 'graphql-for-ecommerce' );
+					},
+					'deprecationReason' => __( 'Always null', 'graphql-for-ecommerce' ),
+					'args'              => [
 						'format' => [
 							'type'        => 'PricingFieldFormatEnum',
-							'description' => __( 'Format of the price', 'wp-graphql-woocommerce' ),
+							'description' => static function () {
+								return __( 'Format of the price', 'graphql-for-ecommerce' );
+							},
 						],
 					],
-					'resolve'     => static function ( $source, array $args ) {
+					'resolve'           => static function ( $source, array $args ) {
 						$price = ! is_null( $source->get_fee_total() ) ? $source->get_fee_total() : 0;
 
 						if ( isset( $args['format'] ) && 'raw' === $args['format'] ) {
@@ -260,15 +302,20 @@ class Cart_Type {
 					},
 				],
 				'feeTax'                   => [
-					'type'        => 'String',
-					'description' => __( 'Cart fee tax', 'wp-graphql-woocommerce' ),
-					'args'        => [
+					'type'              => 'String',
+					'description'       => static function () {
+						return __( 'Cart fee tax', 'graphql-for-ecommerce' );
+					},
+					'deprecationReason' => __( 'Always null', 'graphql-for-ecommerce' ),
+					'args'              => [
 						'format' => [
 							'type'        => 'PricingFieldFormatEnum',
-							'description' => __( 'Format of the price', 'wp-graphql-woocommerce' ),
+							'description' => static function () {
+								return __( 'Format of the price', 'graphql-for-ecommerce' );
+							},
 						],
 					],
-					'resolve'     => static function ( $source, array $args ) {
+					'resolve'           => static function ( $source, array $args ) {
 						$price = ! is_null( $source->get_fee_tax() ) ? $source->get_fee_tax() : 0;
 
 						if ( isset( $args['format'] ) && 'raw' === $args['format'] ) {
@@ -280,11 +327,15 @@ class Cart_Type {
 				],
 				'total'                    => [
 					'type'        => 'String',
-					'description' => __( 'Cart total after calculation', 'wp-graphql-woocommerce' ),
+					'description' => static function () {
+						return __( 'Cart total after calculation', 'graphql-for-ecommerce' );
+					},
 					'args'        => [
 						'format' => [
 							'type'        => 'PricingFieldFormatEnum',
-							'description' => __( 'Format of the price', 'wp-graphql-woocommerce' ),
+							'description' => static function () {
+								return __( 'Format of the price', 'graphql-for-ecommerce' );
+							},
 						],
 					],
 					'resolve'     => static function ( $source, array $args ) {
@@ -302,11 +353,15 @@ class Cart_Type {
 				],
 				'totalTax'                 => [
 					'type'        => 'String',
-					'description' => __( 'Cart total tax amount', 'wp-graphql-woocommerce' ),
+					'description' => static function () {
+						return __( 'Cart total tax amount', 'graphql-for-ecommerce' );
+					},
 					'args'        => [
 						'format' => [
 							'type'        => 'PricingFieldFormatEnum',
-							'description' => __( 'Format of the price', 'wp-graphql-woocommerce' ),
+							'description' => static function () {
+								return __( 'Format of the price', 'graphql-for-ecommerce' );
+							},
 						],
 					],
 					'resolve'     => static function ( $source, array $args ) {
@@ -321,7 +376,9 @@ class Cart_Type {
 				],
 				'totalTaxes'               => [
 					'type'        => [ 'list_of' => 'CartTax' ],
-					'description' => __( 'Cart total taxes itemized', 'wp-graphql-woocommerce' ),
+					'description' => static function () {
+						return __( 'Cart total taxes itemized', 'graphql-for-ecommerce' );
+					},
 					'resolve'     => static function ( $source ) {
 						$taxes = $source->get_tax_totals();
 						return ! empty( $taxes ) ? array_values( $taxes ) : null;
@@ -329,14 +386,18 @@ class Cart_Type {
 				],
 				'isEmpty'                  => [
 					'type'        => 'Boolean',
-					'description' => __( 'Is cart empty', 'wp-graphql-woocommerce' ),
+					'description' => static function () {
+						return __( 'Is cart empty', 'graphql-for-ecommerce' );
+					},
 					'resolve'     => static function ( $source ) {
 						return ! is_null( $source->is_empty() ) ? $source->is_empty() : null;
 					},
 				],
 				'displayPricesIncludeTax'  => [
 					'type'        => 'Boolean',
-					'description' => __( 'Do display prices include taxes', 'wp-graphql-woocommerce' ),
+					'description' => static function () {
+						return __( 'Do display prices include taxes', 'graphql-for-ecommerce' );
+					},
 					'resolve'     => static function ( $source ) {
 						return ! is_null( $source->display_prices_including_tax() )
 							? $source->display_prices_including_tax()
@@ -345,7 +406,9 @@ class Cart_Type {
 				],
 				'needsShippingAddress'     => [
 					'type'        => 'Boolean',
-					'description' => __( 'Is customer shipping address needed', 'wp-graphql-woocommerce' ),
+					'description' => static function () {
+						return __( 'Is customer shipping address needed', 'graphql-for-ecommerce' );
+					},
 					'resolve'     => static function ( $source ) {
 						return ! is_null( $source->needs_shipping_address() )
 							? $source->needs_shipping_address()
@@ -353,24 +416,99 @@ class Cart_Type {
 					},
 				],
 				'fees'                     => [
-					'type'        => [ 'list_of' => 'CartFee' ],
-					'description' => __( 'Additional fees on the cart.', 'wp-graphql-woocommerce' ),
-					'resolve'     => static function ( $source ) {
+					'type'              => [ 'list_of' => 'CartFee' ],
+					'description'       => static function () {
+						return __( 'Additional fees on the cart.', 'graphql-for-ecommerce' );
+					},
+					'deprecationReason' => __( 'Always null', 'graphql-for-ecommerce' ),
+					'resolve'           => static function ( $source ) {
 						$fees = $source->get_fees();
 						return ! empty( $fees ) ? array_values( $fees ) : null;
 					},
 				],
 				'appliedCoupons'           => [
 					'type'        => [ 'list_of' => 'AppliedCoupon' ],
-					'description' => __( 'Coupons applied to the cart', 'wp-graphql-woocommerce' ),
+					'description' => static function () {
+						return __( 'Coupons applied to the cart', 'graphql-for-ecommerce' );
+					},
 					'resolve'     => static function ( $source ) {
 						$applied_coupons = $source->get_applied_coupons();
 
 						return ! empty( $applied_coupons ) ? $applied_coupons : null;
 					},
 				],
+				'taxLines'                 => [
+					'type'        => [ 'list_of' => 'CartTaxLine' ],
+					'description' => static function () {
+						return __( 'Cart tax lines itemized', 'graphql-for-ecommerce' );
+					},
+					'resolve'     => static function ( $cart ) {
+						if ( 'itemized' !== get_option( 'woocommerce_tax_total_display' ) ) {
+							return [];
+						}
+
+						$cart_tax_totals = $cart->get_tax_totals();
+						$decimals        = wc_get_price_decimals();
+						$tax_lines       = [];
+
+						foreach ( $cart_tax_totals as $cart_tax_total ) {
+							$tax_lines[] = [
+								'name'  => $cart_tax_total->label,
+								'price' => number_format( $cart_tax_total->amount, $decimals ),
+								'rate'  => \WC_Tax::get_rate_percent( $cart_tax_total->tax_rate_id ),
+							];
+						}
+
+						return $tax_lines;
+					},
+				],
 			],
 			$other_fields
+		);
+	}
+
+	/**
+	 * Registers the "CartTaxLine" type.
+	 *
+	 * @return void
+	 */
+	public static function register_cart_tax_line() {
+		register_graphql_object_type(
+			'CartTaxLine',
+			[
+				'description' => static function () {
+					return __( 'The cart tax line object', 'graphql-for-ecommerce' );
+				},
+				'fields'      => [
+					'name'  => [
+						'type'        => 'String',
+						'description' => static function () {
+							return __( 'Tax line name', 'graphql-for-ecommerce' );
+						},
+						'resolve'     => static function ( $source ) {
+							return ! empty( $source['name'] ) ? $source['name'] : null;
+						},
+					],
+					'price' => [
+						'type'        => 'String',
+						'description' => static function () {
+							return __( 'Tax line price', 'graphql-for-ecommerce' );
+						},
+						'resolve'     => static function ( $source ) {
+							return ! empty( $source['price'] ) ? wc_graphql_price( $source['price'] ) : null;
+						},
+					],
+					'rate'  => [
+						'type'        => 'String',
+						'description' => static function () {
+							return __( 'Tax line rate', 'graphql-for-ecommerce' );
+						},
+						'resolve'     => static function ( $source ) {
+							return ! empty( $source['rate'] ) ? $source['rate'] : null;
+						},
+					],
+				],
+			]
 		);
 	}
 
@@ -388,13 +526,17 @@ class Cart_Type {
 					'connectionArgs'   => [
 						'needsShipping' => [
 							'type'        => 'Boolean',
-							'description' => __( 'Limit results to cart items that require shipping', 'wp-graphql-woocommerce' ),
+							'description' => static function () {
+								return __( 'Limit results to cart items that require shipping', 'graphql-for-ecommerce' );
+							},
 						],
 					],
 					'connectionFields' => [
 						'itemCount'    => [
 							'type'        => 'Int',
-							'description' => __( 'Total number of items in the cart.', 'wp-graphql-woocommerce' ),
+							'description' => static function () {
+								return __( 'Total number of items in the cart.', 'graphql-for-ecommerce' );
+							},
 							'resolve'     => static function ( $source ) {
 								if ( empty( $source['edges'] ) ) {
 									return 0;
@@ -410,7 +552,9 @@ class Cart_Type {
 						],
 						'productCount' => [
 							'type'        => 'Int',
-							'description' => __( 'Total number of different products in the cart', 'wp-graphql-woocommerce' ),
+							'description' => static function () {
+								return __( 'Total number of different products in the cart', 'graphql-for-ecommerce' );
+							},
 							'resolve'     => static function ( $source ) {
 								if ( empty( $source['edges'] ) ) {
 									return 0;
@@ -440,7 +584,9 @@ class Cart_Type {
 		register_graphql_object_type(
 			'Cart',
 			[
-				'description' => __( 'The cart object', 'wp-graphql-woocommerce' ),
+				'description' => static function () {
+					return __( 'The cart object', 'graphql-for-ecommerce' );
+				},
 				/**
 				 * Allows for a decisive filtering of the cart fields.
 				 * Note: Only use if deregisteration or renaming the field(s) has failed.
@@ -470,46 +616,60 @@ class Cart_Type {
 		register_graphql_object_type(
 			'CartFee',
 			[
-				'description' => __( 'An additional fee', 'wp-graphql-woocommerce' ),
+				'description' => static function () {
+					return __( 'An additional fee', 'graphql-for-ecommerce' );
+				},
 				'fields'      => [
 					'id'       => [
 						'type'        => [ 'non_null' => 'ID' ],
-						'description' => __( 'Fee ID', 'wp-graphql-woocommerce' ),
+						'description' => static function () {
+							return __( 'Fee ID', 'graphql-for-ecommerce' );
+						},
 						'resolve'     => static function ( $source ) {
 							return ! empty( $source->id ) ? $source->id : null;
 						},
 					],
 					'name'     => [
 						'type'        => [ 'non_null' => 'String' ],
-						'description' => __( 'Fee name', 'wp-graphql-woocommerce' ),
+						'description' => static function () {
+							return __( 'Fee name', 'graphql-for-ecommerce' );
+						},
 						'resolve'     => static function ( $source ) {
 							return ! empty( $source->name ) ? $source->name : null;
 						},
 					],
 					'taxClass' => [
 						'type'        => 'TaxClassEnum',
-						'description' => __( 'Fee tax class', 'wp-graphql-woocommerce' ),
+						'description' => static function () {
+							return __( 'Fee tax class', 'graphql-for-ecommerce' );
+						},
 						'resolve'     => static function ( $source ) {
 							return ! empty( $source->tax_class ) ? $source->tax_class : null;
 						},
 					],
 					'taxable'  => [
 						'type'        => 'Boolean',
-						'description' => __( 'Is fee taxable?', 'wp-graphql-woocommerce' ),
+						'description' => static function () {
+							return __( 'Is fee taxable?', 'graphql-for-ecommerce' );
+						},
 						'resolve'     => static function ( $source ) {
 							return ! is_null( $source->taxable ) ? $source->taxable : null;
 						},
 					],
 					'amount'   => [
 						'type'        => 'Float',
-						'description' => __( 'Fee amount', 'wp-graphql-woocommerce' ),
+						'description' => static function () {
+							return __( 'Fee amount', 'graphql-for-ecommerce' );
+						},
 						'resolve'     => static function ( $source ) {
 							return ! is_null( $source->amount ) ? $source->amount : 0;
 						},
 					],
 					'total'    => [
 						'type'        => 'Float',
-						'description' => __( 'Fee total', 'wp-graphql-woocommerce' ),
+						'description' => static function () {
+							return __( 'Fee total', 'graphql-for-ecommerce' );
+						},
 						'resolve'     => static function ( $source ) {
 							return ! is_null( $source->total ) ? $source->total : 0;
 						},
@@ -528,36 +688,48 @@ class Cart_Type {
 		register_graphql_object_type(
 			'CartTax',
 			[
-				'description' => __( 'An itemized cart tax item', 'wp-graphql-woocommerce' ),
+				'description' => static function () {
+					return __( 'An itemized cart tax item', 'graphql-for-ecommerce' );
+				},
 				'fields'      => [
 					'id'         => [
 						'type'        => [ 'non_null' => 'ID' ],
-						'description' => __( 'Tax Rate ID', 'wp-graphql-woocommerce' ),
+						'description' => static function () {
+							return __( 'Tax Rate ID', 'graphql-for-ecommerce' );
+						},
 						'resolve'     => static function ( $source ) {
 							return ! empty( $source->tax_rate_id ) ? $source->tax_rate_id : null;
 						},
 					],
 					'label'      => [
 						'type'        => [ 'non_null' => 'String' ],
-						'description' => __( 'Tax label', 'wp-graphql-woocommerce' ),
+						'description' => static function () {
+							return __( 'Tax label', 'graphql-for-ecommerce' );
+						},
 						'resolve'     => static function ( $source ) {
 							return ! empty( $source->label ) ? $source->label : null;
 						},
 					],
 					'isCompound' => [
 						'type'        => 'Boolean',
-						'description' => __( 'Is tax compound?', 'wp-graphql-woocommerce' ),
+						'description' => static function () {
+							return __( 'Is tax compound?', 'graphql-for-ecommerce' );
+						},
 						'resolve'     => static function ( $source ) {
 							return ! empty( $source->is_compound ) ? $source->is_compound : null;
 						},
 					],
 					'amount'     => [
 						'type'        => 'String',
-						'description' => __( 'Tax amount', 'wp-graphql-woocommerce' ),
+						'description' => static function () {
+							return __( 'Tax amount', 'graphql-for-ecommerce' );
+						},
 						'args'        => [
 							'format' => [
 								'type'        => 'PricingFieldFormatEnum',
-								'description' => __( 'Format of the price', 'wp-graphql-woocommerce' ),
+								'description' => static function () {
+									return __( 'Format of the price', 'graphql-for-ecommerce' );
+								},
 							],
 						],
 						'resolve'     => static function ( $source, array $args ) {
@@ -588,11 +760,15 @@ class Cart_Type {
 		register_graphql_object_type(
 			'AppliedCoupon',
 			[
-				'description' => __( 'Coupon applied to the shopping cart.', 'wp-graphql-woocommerce' ),
+				'description' => static function () {
+					return __( 'Coupon applied to the shopping cart.', 'graphql-for-ecommerce' );
+				},
 				'fields'      => [
 					'code'           => [
 						'type'        => [ 'non_null' => 'String' ],
-						'description' => __( 'Coupon code', 'wp-graphql-woocommerce' ),
+						'description' => static function () {
+							return __( 'Coupon code', 'graphql-for-ecommerce' );
+						},
 						'resolve'     => static function ( $source ) {
 							return $source;
 						},
@@ -602,14 +778,20 @@ class Cart_Type {
 						'args'        => [
 							'excludeTax' => [
 								'type'        => 'Boolean',
-								'description' => __( 'Exclude Taxes (Default "true")', 'wp-graphql-woocommerce' ),
+								'description' => static function () {
+									return __( 'Exclude Taxes (Default "true")', 'graphql-for-ecommerce' );
+								},
 							],
 							'format'     => [
 								'type'        => 'PricingFieldFormatEnum',
-								'description' => __( 'Format of the price', 'wp-graphql-woocommerce' ),
+								'description' => static function () {
+									return __( 'Format of the price', 'graphql-for-ecommerce' );
+								},
 							],
 						],
-						'description' => __( 'Discount applied with this coupon', 'wp-graphql-woocommerce' ),
+						'description' => static function () {
+							return __( 'Discount applied with this coupon', 'graphql-for-ecommerce' );
+						},
 						'resolve'     => static function ( $source, array $args ) {
 							$ex_tax = ! empty( $args['excludeTax'] ) ? $args['excludeTax'] : true;
 							$amount = Factory::resolve_cart()->get_coupon_discount_amount( $source, $ex_tax );
@@ -623,11 +805,15 @@ class Cart_Type {
 					],
 					'discountTax'    => [
 						'type'        => [ 'non_null' => 'String' ],
-						'description' => __( 'Taxes on discount applied with this coupon', 'wp-graphql-woocommerce' ),
+						'description' => static function () {
+							return __( 'Taxes on discount applied with this coupon', 'graphql-for-ecommerce' );
+						},
 						'args'        => [
 							'format' => [
 								'type'        => 'PricingFieldFormatEnum',
-								'description' => __( 'Format of the price', 'wp-graphql-woocommerce' ),
+								'description' => static function () {
+									return __( 'Format of the price', 'graphql-for-ecommerce' );
+								},
 							],
 						],
 						'resolve'     => static function ( $source, array $args ) {
@@ -642,7 +828,9 @@ class Cart_Type {
 					],
 					'description'    => [
 						'type'        => 'String',
-						'description' => __( 'Description of applied coupon', 'wp-graphql-woocommerce' ),
+						'description' => static function () {
+							return __( 'Description of applied coupon', 'graphql-for-ecommerce' );
+						},
 						'resolve'     => static function ( $source ) {
 							$coupon = new \WC_Coupon( $source );
 							return $coupon->get_description();

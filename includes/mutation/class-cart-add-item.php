@@ -44,23 +44,33 @@ class Cart_Add_Item {
 		return [
 			'productId'   => [
 				'type'        => [ 'non_null' => 'Int' ],
-				'description' => __( 'Cart item product database ID or global ID', 'wp-graphql-woocommerce' ),
+				'description' => static function () {
+					return __( 'Cart item product database ID or global ID', 'graphql-for-ecommerce' );
+				},
 			],
 			'quantity'    => [
 				'type'        => 'Int',
-				'description' => __( 'Cart item quantity', 'wp-graphql-woocommerce' ),
+				'description' => static function () {
+					return __( 'Cart item quantity', 'graphql-for-ecommerce' );
+				},
 			],
 			'variationId' => [
 				'type'        => 'Int',
-				'description' => __( 'Cart item product variation database ID or global ID', 'wp-graphql-woocommerce' ),
+				'description' => static function () {
+					return __( 'Cart item product variation database ID or global ID', 'graphql-for-ecommerce' );
+				},
 			],
 			'variation'   => [
 				'type'        => [ 'list_of' => 'ProductAttributeInput' ],
-				'description' => __( 'Cart item product variation attributes', 'wp-graphql-woocommerce' ),
+				'description' => static function () {
+					return __( 'Cart item product variation attributes', 'graphql-for-ecommerce' );
+				},
 			],
 			'extraData'   => [
 				'type'        => 'String',
-				'description' => __( 'JSON string representation of extra cart item data', 'wp-graphql-woocommerce' ),
+				'description' => static function () {
+					return __( 'JSON string representation of extra cart item data', 'graphql-for-ecommerce' );
+				},
 			],
 		];
 	}
@@ -114,7 +124,7 @@ class Cart_Add_Item {
 				\wc_clear_notices();
 				throw new UserError( $cart_error_messages );
 			} else {
-				throw new UserError( __( 'Failed to add cart item. Please check input.', 'wp-graphql-woocommerce' ) );
+				throw new UserError( __( 'Failed to add cart item. Please check input.', 'graphql-for-ecommerce' ) );
 			}
 		};
 	}

@@ -5,6 +5,6 @@
   "license": "GPL-3.0-or-later",
   "require": {},
   "extra": {
-    "comment": "Distribution build from official GitHub Release Asset v0.21.2. Dependencies are pre-bundled in vendor/ and vendor-prefixed/ folders. Do not run composer install/update on this package."
+    "comment": "Distribution from verified official GitHub Release Asset v1.0.3 (source c401cee2f62df80d463145f16192937de2d656ab). Dependencies are pre-bundled; do not run composer install/update on this package. Owned compatibility patches are tracked separately."
   }
 }

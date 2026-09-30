@@ -21,47 +21,69 @@ class Line_Item_Input {
 		register_graphql_input_type(
 			'LineItemInput',
 			[
-				'description' => __( 'Meta data.', 'wp-graphql-woocommerce' ),
+				'description' => static function () {
+					return __( 'Meta data.', 'graphql-for-ecommerce' );
+				},
 				'fields'      => [
 					'id'          => [
 						'type'        => 'ID',
-						'description' => __( 'Line Item ID', 'wp-graphql-woocommerce' ),
+						'description' => static function () {
+							return __( 'Line Item ID', 'graphql-for-ecommerce' );
+						},
 					],
 					'name'        => [
 						'type'        => 'String',
-						'description' => __( 'Line name', 'wp-graphql-woocommerce' ),
+						'description' => static function () {
+							return __( 'Line name', 'graphql-for-ecommerce' );
+						},
 					],
 					'productId'   => [
 						'type'        => 'Int',
-						'description' => __( 'Product ID.', 'wp-graphql-woocommerce' ),
+						'description' => static function () {
+							return __( 'Product ID.', 'graphql-for-ecommerce' );
+						},
 					],
 					'variationId' => [
 						'type'        => 'Int',
-						'description' => __( 'Variation ID, if applicable.', 'wp-graphql-woocommerce' ),
+						'description' => static function () {
+							return __( 'Variation ID, if applicable.', 'graphql-for-ecommerce' );
+						},
 					],
 					'quantity'    => [
 						'type'        => 'Int',
-						'description' => __( 'Quantity ordered.', 'wp-graphql-woocommerce' ),
+						'description' => static function () {
+							return __( 'Quantity ordered.', 'graphql-for-ecommerce' );
+						},
 					],
 					'taxClass'    => [
 						'type'        => 'TaxClassEnum',
-						'description' => __( 'Tax class of product.', 'wp-graphql-woocommerce' ),
+						'description' => static function () {
+							return __( 'Tax class of product.', 'graphql-for-ecommerce' );
+						},
 					],
 					'subtotal'    => [
 						'type'        => 'String',
-						'description' => __( 'Line subtotal (before discounts).', 'wp-graphql-woocommerce' ),
+						'description' => static function () {
+							return __( 'Line subtotal (before discounts).', 'graphql-for-ecommerce' );
+						},
 					],
 					'total'       => [
 						'type'        => 'String',
-						'description' => __( 'Line total (after discounts).', 'wp-graphql-woocommerce' ),
+						'description' => static function () {
+							return __( 'Line total (after discounts).', 'graphql-for-ecommerce' );
+						},
 					],
 					'metaData'    => [
 						'type'        => [ 'list_of' => 'MetaDataInput' ],
-						'description' => __( 'Meta data.', 'wp-graphql-woocommerce' ),
+						'description' => static function () {
+							return __( 'Meta data.', 'graphql-for-ecommerce' );
+						},
 					],
 					'sku'         => [
 						'type'        => 'string',
-						'description' => __( 'Product SKU.', 'wp-graphql-woocommerce' ),
+						'description' => static function () {
+							return __( 'Product SKU.', 'graphql-for-ecommerce' );
+						},
 					],
 				],
 			]

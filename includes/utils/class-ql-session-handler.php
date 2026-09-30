@@ -92,11 +92,11 @@ class QL_Session_Handler extends WC_Session_Handler {
 	 * @return mixed|null|string
 	 */
 	private function get_secret_key() {
-		// Use the defined secret key, if it exists.
-
-		$secret_key = defined( 'GRAPHQL_WOOCOMMERCE_SECRET_KEY' ) && ! empty( GRAPHQL_WOOCOMMERCE_SECRET_KEY )
+		// Use the defined secret key, if it exists. Fallback must be at least
+		// 32 bytes to satisfy php-jwt v7's HS256 minimum key length requirement.
+		$secret_key = defined( 'GRAPHQL_WOOCOMMERCE_SECRET_KEY' ) && GRAPHQL_WOOCOMMERCE_SECRET_KEY !== false && GRAPHQL_WOOCOMMERCE_SECRET_KEY !== ''
 			? GRAPHQL_WOOCOMMERCE_SECRET_KEY :
-			'graphql-woo-cart-session';
+			wp_salt();
 		return apply_filters( 'graphql_woocommerce_secret_key', $secret_key );
 	}
 
@@ -118,6 +118,8 @@ class QL_Session_Handler extends WC_Session_Handler {
 			add_action( 'woocommerce_set_cart_cookies', [ $this, 'set_customer_session_token' ], 10 );
 			add_action( 'woographql_update_session', [ $this, 'set_customer_session_token' ], 10 );
 			add_action( 'shutdown', [ $this, 'save_data' ] );
+			add_filter( 'graphql_jwt_auth_after_authenticate', [ $this, 'reinitialize_session_token' ], 10 );
+			add_filter( 'graphql_login_payload', [ $this, 'reinitialize_session_token' ], 10 );
 		} else {
 			add_action( 'woocommerce_set_cart_cookies', [ $this, 'set_customer_session_cookie' ], 10 );
 			add_action( 'shutdown', [ $this, 'save_data' ], 20 );
@@ -165,12 +167,24 @@ class QL_Session_Handler extends WC_Session_Handler {
 			// If the user logs in, update session.
 			if ( is_user_logged_in() && strval( get_current_user_id() ) !== $this->_customer_id ) {
 				$guest_session_id   = $this->_customer_id;
+				$guest_data         = $this->_data;
 				$this->_customer_id = strval( get_current_user_id() );
 				$this->_dirty       = true;
 
-				// If session empty check for previous data associated with customer and assign that to the session.
-				if ( empty( $this->_data ) ) {
-					$this->_data = $this->get_session_data();
+				$existing_user_data = $this->get_session_data();
+
+				$transfer_behavior = woographql_setting( 'session_transfer_behavior', 'keep_new_fallback_old' );
+				switch ( $transfer_behavior ) {
+					case 'keep_new':
+						$this->_data = $guest_data;
+						break;
+					case 'keep_old':
+						$this->_data = ! empty( $existing_user_data ) ? $existing_user_data : $guest_data;
+						break;
+					case 'keep_new_fallback_old':
+					default:
+						$this->_data = ! empty( $guest_data ) ? $guest_data : $existing_user_data;
+						break;
 				}
 
 				// @phpstan-ignore-next-line
@@ -185,11 +199,11 @@ class QL_Session_Handler extends WC_Session_Handler {
 			if ( $token->exp < $this->_session_expiration ) {
 				$this->update_session_timestamp( (string) $this->_customer_id, $this->_session_expiration );
 			}
-		} elseif ( is_wp_error( $token ) ) {
+		} elseif ( Router::is_graphql_http_request() && is_wp_error( $token ) ) {
 			add_filter(
 				'graphql_woocommerce_session_token_errors',
 				static function ( $errors ) use ( $token ) {
-					$errors = $token->get_error_message();
+					$errors = $token->get_error_code() . ': ' . $token->get_error_message();
 					return $errors;
 				}
 			);
@@ -215,6 +229,29 @@ class QL_Session_Handler extends WC_Session_Handler {
 	}
 
 	/**
+	 * Reinitialize session token in response after authentication in GraphQL.
+	 *
+	 * @param array $response The authentication response.
+	 *
+	 * @return array
+	 */
+	public function reinitialize_session_token( $response ) {
+		$this->init_session_token();
+
+		$token = $this->build_token();
+		if ( $token ) {
+			$response['session_token'] = $token;
+		}
+
+		// Add Store API Cart-Token if enabled.
+		$cart_token = $this->build_cart_token();
+		if ( ! empty( $cart_token ) ) {
+			$response['cart_token'] = $cart_token;
+		}
+		return $response;
+	}
+
+	/**
 	 * Retrieve and decrypt the session data from session, if set. Otherwise return false.
 	 *
 	 * Session cookies without a customer ID are invalid.
@@ -230,6 +267,26 @@ class QL_Session_Handler extends WC_Session_Handler {
 			return false;
 		}
 
+		// Determine token type by checking for "Session " prefix.
+		$is_legacy_token = 0 === strpos( $session_header, 'Session ' );
+
+		if ( $is_legacy_token ) {
+			return $this->validate_legacy_token( $session_header );
+		}
+
+		return $this->validate_cart_token( $session_header );
+	}
+
+	/**
+	 * Validate legacy GraphQL session token
+	 *
+	 * @param string $session_header The session header value.
+	 *
+	 * @throws \Exception Invalid token.
+	 *
+	 * @return object{ iat: int, exp: int, data: object{ customer_id: string } }|\WP_Error|false
+	 */
+	protected function validate_legacy_token( $session_header ) {
 		// Get the token from the header.
 		$token_string = sscanf( $session_header, 'Session %s' );
 		if ( empty( $token_string ) ) {
@@ -255,17 +312,17 @@ class QL_Session_Handler extends WC_Session_Handler {
 
 			// Check if token was successful decoded.
 			if ( ! $token ) {
-				throw new \Exception( __( 'Failed to decode session token', 'wp-graphql-woocommerce' ) );
+				throw new \Exception( __( 'Failed to decode session token', 'graphql-for-ecommerce' ) );
 			}
 
 			// The Token is decoded now validate the iss.
 			if ( empty( $token->iss ) || get_bloginfo( 'url' ) !== $token->iss ) {
-				throw new \Exception( __( 'The iss do not match with this server', 'wp-graphql-woocommerce' ) );
+				throw new \Exception( __( 'The iss do not match with this server', 'graphql-for-ecommerce' ) );
 			}
 
 			// Validate the customer id in the token.
 			if ( empty( $token->data ) || empty( $token->data->customer_id ) ) {
-				throw new \Exception( __( 'Customer ID not found in the token', 'wp-graphql-woocommerce' ) );
+				throw new \Exception( __( 'Customer ID not found in the token', 'graphql-for-ecommerce' ) );
 			}
 		} catch ( \Throwable $error ) {
 			return new \WP_Error( 'invalid_token', $error->getMessage() );
@@ -275,11 +332,70 @@ class QL_Session_Handler extends WC_Session_Handler {
 	}
 
 	/**
+	 * Validate Store API Cart-Token
+	 *
+	 * @param string $cart_token The Cart-Token value.
+	 *
+	 * @throws \Exception Invalid token.
+	 *
+	 * @return object{ iat: int, exp: int, data: object{ customer_id: string } }|\WP_Error|false
+	 */
+	protected function validate_cart_token( $cart_token ) {
+		// Validate Cart-Token using WooCommerce's JsonWebToken utility if available.
+		if ( ! $this->supports_store_api() ) {
+			return new \WP_Error( 'store_api_not_supported', __( 'Store API not available', 'graphql-for-ecommerce' ) );
+		}
+
+		try {
+			$secret   = '@' . wp_salt();
+			$is_valid = \Automattic\WooCommerce\StoreApi\Utilities\JsonWebToken::validate(
+				$cart_token,
+				$secret
+			);
+
+			if ( ! $is_valid ) {
+				throw new \Exception( __( 'Invalid Cart-Token', 'graphql-for-ecommerce' ) );
+			}
+
+			// Decode the token to get the payload.
+			/** @var object{ payload: object{ user_id: string, iat: int, exp: int } } $parts */
+			$parts = \Automattic\WooCommerce\StoreApi\Utilities\JsonWebToken::get_parts( $cart_token );
+
+			// Transform to match legacy token structure for compatibility.
+			/** @var object{ iat: int, exp: int, data: object{ customer_id: string } } $payload */
+			$payload = (object) [
+				'iat'  => $parts->payload->iat,
+				'exp'  => $parts->payload->exp,
+				'data' => (object) [ 'customer_id' => $parts->payload->user_id ?? '' ],
+			];
+		} catch ( \Throwable $error ) {
+			return new \WP_Error( 'invalid_cart_token', $error->getMessage() );
+		}//end try
+
+		return $payload;
+	}
+
+	/**
 	 * Get the value of the cart session header from the $_SERVER super global
 	 *
 	 * @return mixed|string
 	 */
 	public function get_session_header() {
+		$token_type = woographql_setting( 'set_session_token_type', 'legacy' );
+
+		// Check for Cart-Token header first if Store API mode is enabled.
+		if ( in_array( $token_type, [ 'store-api', 'both' ], true ) && isset( $_SERVER['HTTP_CART_TOKEN'] ) ) { // phpcs:ignore WordPress.Security.ValidatedSanitizedInput.InputNotSanitized
+			$cart_token = $_SERVER['HTTP_CART_TOKEN']; // phpcs:ignore WordPress.Security.ValidatedSanitizedInput.InputNotSanitized, WordPress.Security.ValidatedSanitizedInput.MissingUnslash
+
+			/**
+			 * Return the cart session header, passed through a filter
+			 *
+			 * @param string $session_header  The header used to identify a user's cart session token.
+			 */
+			return apply_filters( 'graphql_woocommerce_cart_session_header', $cart_token );
+		}
+
+		// Fall back to legacy woocommerce-session header.
 		$session_header_key = $this->get_server_key();
 
 		// Looking for the cart session header.
@@ -320,6 +436,12 @@ class QL_Session_Handler extends WC_Session_Handler {
 	 */
 	public function build_token() {
 		if ( empty( $this->_session_issued ) || ! $this->sending_token() ) {
+			return false;
+		}
+
+		// Check if legacy GraphQL token generation is enabled.
+		$token_type = woographql_setting( 'set_session_token_type', 'legacy' );
+		if ( ! in_array( $token_type, [ 'legacy', 'both' ], true ) ) {
 			return false;
 		}
 
@@ -386,6 +508,96 @@ class QL_Session_Handler extends WC_Session_Handler {
 	}
 
 	/**
+	 * Build a Store API compatible Cart-Token JWT.
+	 *
+	 * Generates a JWT token compatible with WooCommerce Store API (used by WooCommerce Blocks).
+	 * This enables session sharing between GraphQL mutations and WooCommerce Blocks cart/checkout.
+	 *
+	 * @since 0.22.0
+	 *
+	 * @return string|null Cart-Token JWT or null if feature disabled or unavailable.
+	 */
+	public function build_cart_token() {
+		// Check if Store API token generation is enabled.
+		$token_type = woographql_setting( 'set_session_token_type', 'legacy' );
+		if ( ! in_array( $token_type, [ 'store-api', 'both' ], true ) ) {
+			return null;
+		}
+
+		// Ensure session is active.
+		if ( empty( $this->_session_issued ) || ! $this->sending_token() ) {
+			return null;
+		}
+
+		// Check if WooCommerce Store API utilities are available.
+		if ( ! $this->supports_store_api() ) {
+			return null;
+		}
+
+		// Generate Cart-Token using WooCommerce's Store API pattern.
+		try {
+			$token = \Automattic\WooCommerce\StoreApi\Utilities\JsonWebToken::create(
+				[
+					'user_id' => $this->_customer_id,
+					'exp'     => $this->_session_expiration,
+					'iss'     => 'store-api',
+				],
+				'@' . wp_salt()
+			);
+
+			/**
+			 * Filter the Store API Cart-Token before returning.
+			 *
+			 * @since 0.22.0
+			 *
+			 * @param string     $token         The signed Cart-Token JWT
+			 * @param int|string $customer_id   ID of customer associated with token
+			 * @param array      $session_data  Session data associated with token
+			 */
+			$token = apply_filters(
+				'graphql_woocommerce_store_api_cart_token',
+				$token,
+				$this->_customer_id,
+				$this->_data
+			);
+
+			return $token;
+		} catch ( \Throwable $e ) {
+			// Log error but don't break GraphQL response.
+			do_action( 'graphql_debug', sprintf( 'Failed to generate Cart-Token: %s', $e->getMessage() ) );
+			return null;
+		}
+	}
+
+	/**
+	 * Check if WooCommerce version supports Store API.
+	 *
+	 * Store API Cart-Token functionality requires WooCommerce 5.5.0+.
+	 *
+	 * @since 0.22.0
+	 *
+	 * @return bool
+	 */
+	protected function supports_store_api() {
+		// Check WooCommerce is active.
+		if ( ! defined( 'WC_VERSION' ) ) {
+			return false;
+		}
+
+		// Store API CartTokenUtils introduced in WC 5.5.0.
+		if ( version_compare( WC_VERSION, '5.5.0', '<' ) ) {
+			return false;
+		}
+
+		// Check if Store API JWT class is available.
+		if ( ! class_exists( '\Automattic\WooCommerce\StoreApi\Utilities\JsonWebToken' ) ) {
+			return false;
+		}
+
+		return true;
+	}
+
+	/**
 	 * Sets the session header on-demand (usually after adding an item to the cart).
 	 *
 	 * Warning: Headers will only be set if this is called before the headers are sent.
@@ -397,14 +609,25 @@ class QL_Session_Handler extends WC_Session_Handler {
 	public function set_customer_session_token( $set ) {
 		if ( ! empty( $this->_session_issued ) && $set ) {
 			/**
-			 * Set callback session token for use in the HTTP response header and customer/user "sessionToken" field.
+			 * Set callback session token(s) for use in the HTTP response headers.
+			 * Depending on the session token type setting, this may send:
+			 * - Legacy GraphQL session token (woocommerce-session header)
+			 * - Store API Cart-Token header
+			 * - Both headers
 			 */
 			add_filter(
 				'graphql_response_headers_to_send',
 				function ( $headers ) {
+					// Add legacy GraphQL session token if enabled.
 					$token = $this->build_token();
 					if ( $token ) {
 						$headers[ $this->_token ] = $token;
+					}
+
+					// Add Store API Cart-Token if enabled.
+					$cart_token = $this->build_cart_token();
+					if ( ! empty( $cart_token ) ) {
+						$headers['Cart-Token'] = $cart_token;
 					}
 
 					return $headers;
@@ -447,10 +670,9 @@ class QL_Session_Handler extends WC_Session_Handler {
 	 */
 	public function set_session_expiration() {
 		$this->_session_issued = time();
-		// 47 hours.
-		$this->_session_expiring = apply_filters( 'wc_session_expiring', $this->_session_issued + ( 60 * 60 * 47 ) ); // phpcs:ignore WordPress.NamingConventions.PrefixAllGlobals.NonPrefixedHooknameFound
-		// 48 hours.
-		$this->_session_expiration = apply_filters( 'wc_session_expiration', $this->_session_issued + ( 60 * 60 * 48 ) ); // phpcs:ignore WordPress.NamingConventions.PrefixAllGlobals.NonPrefixedHooknameFound
+
+		parent::set_session_expiration();
+
 		$this->_session_expiration = apply_filters_deprecated(
 			'graphql_woocommerce_cart_session_expire',
 			[ $this->_session_expiration ],

@@ -24,8 +24,23 @@ class Products {
 	 * @return void
 	 */
 	public static function register_connections() {
-		// From RootQuery.
-		register_graphql_connection( self::get_connection_config() );
+		// Products connection (toType: Product) — compatible with i18n plugins.
+		register_graphql_connection(
+			self::get_connection_config(
+				[
+					'toType'         => 'Product',
+					'fromFieldName'  => 'products',
+					'connectionArgs' => self::get_product_connection_args(),
+				]
+			)
+		);
+
+		// Products with variations connection (toType: ProductUnion).
+		register_graphql_connection(
+			self::get_connection_config(
+				[ 'fromFieldName' => 'productsWithVariations' ]
+			)
+		);
 
 		// From Coupon.
 		register_graphql_connection(
@@ -61,6 +76,46 @@ class Products {
 			)
 		);
 
+		// From ProductAttribute to Product.
+		register_graphql_connection(
+			self::get_connection_config(
+				[
+					'fromType'      => 'ProductAttribute',
+					'fromFieldName' => 'products',
+					'resolve'       => static function ( $source, array $args, AppContext $context, ResolveInfo $info ) {
+						$resolver = new Product_Connection_Resolver( $source, $args, $context, $info );
+
+						if ( $source->is_taxonomy() ) {
+							$resolver->set_query_arg(
+								'tax_query',
+								[
+									[
+										'taxonomy' => $source->get_name(),
+										'field'    => 'slug',
+										'terms'    => $source->get_slugs(),
+										'operator' => 'IN',
+									],
+								]
+							);
+						} else {
+							$resolver->set_query_arg(
+								'meta_query',
+								[
+									[
+										'key'     => '_product_attributes',
+										'value'   => $source->get_name(),
+										'compare' => 'LIKE',
+									],
+								]
+							);
+						}
+
+						return $resolver->get_connection();
+					},
+				]
+			)
+		);
+
 		// Connections from all product types to related and upsell.
 		register_graphql_connection(
 			self::get_connection_config(
@@ -71,7 +126,9 @@ class Products {
 						[
 							'shuffle' => [
 								'type'        => 'Boolean',
-								'description' => __( 'Shuffle results? (Pagination currently not support by this argument)', 'wp-graphql-woocommerce' ),
+								'description' => static function () {
+									return __( 'Shuffle results? (Pagination currently not support by this argument)', 'graphql-for-ecommerce' );
+								},
 							],
 						]
 					),
@@ -151,7 +208,9 @@ class Products {
 				'fromType'      => 'Product',
 				'toType'        => 'Product',
 				'fromFieldName' => 'parent',
-				'description'   => __( 'The parent of the node. The parent object can be of various types', 'wp-graphql-woocommerce' ),
+				'description'   => static function () {
+					return __( 'The parent of the node. The parent object can be of various types', 'graphql-for-ecommerce' );
+				},
 				'oneToOne'      => true,
 				'queryClass'    => '\WC_Product_Query',
 				'resolve'       => static function ( $source, $args, AppContext $context, ResolveInfo $info ) {
@@ -226,7 +285,15 @@ class Products {
 		$to_type   = $config['toType'];
 		$from_type = $config['fromType'];
 		if ( 'Product' === $to_type ) {
-			$config['connectionArgs'] = self::get_connection_args();
+			$args                     = self::get_product_connection_args();
+			$config['connectionArgs'] = ! empty( $config['connectionArgs'] )
+				? array_merge( $config['connectionArgs'], $args )
+				: $args;
+		} elseif ( 'ProductUnion' === $to_type ) {
+			$args                     = self::get_product_union_connection_args();
+			$config['connectionArgs'] = ! empty( $config['connectionArgs'] )
+				? array_merge( $config['connectionArgs'], $args )
+				: $args;
 		}
 
 		$taxonomies = self::get_product_connected_taxonomies();
@@ -284,7 +351,9 @@ class Products {
 		return [
 			'found' => [
 				'type'        => 'Integer',
-				'description' => __( 'Total products founds', 'wp-graphql-woocommerce' ),
+				'description' => static function () {
+					return __( 'Total products founds', 'graphql-for-ecommerce' );
+				},
 				'resolve'     => static function ( $source ) {
 					return ! empty( $source['pageInfo']['found'] ) ? $source['pageInfo']['found'] : null;
 				},
@@ -293,161 +362,322 @@ class Products {
 	}
 
 	/**
-	 * Returns array of where args.
-	 *
-	 * @param array $extra_args  Extra connection args.
+	 * Returns the shared base connection args used by both product connections.
 	 *
 	 * @return array
 	 */
-	public static function get_connection_args( $extra_args = [] ): array {
+	private static function get_base_connection_args(): array {
 		$args = [
-			'slugIn'             => [
+			'slugIn'              => [
 				'type'        => [ 'list_of' => 'String' ],
-				'description' => __( 'Limit result set to products with specific slugs.', 'wp-graphql-woocommerce' ),
+				'description' => static function () {
+					return __( 'Limit result set to products with specific slugs.', 'graphql-for-ecommerce' );
+				},
 			],
-			'status'             => [
+			'status'              => [
 				'type'        => 'String',
-				'description' => __( 'Limit result set to products assigned a specific status.', 'wp-graphql-woocommerce' ),
+				'description' => static function () {
+					return __( 'Limit result set to products assigned a specific status.', 'graphql-for-ecommerce' );
+				},
 			],
-			'type'               => [
-				'type'        => 'ProductTypesEnum',
-				'description' => __( 'Limit result set to products assigned a specific type.', 'wp-graphql-woocommerce' ),
-			],
-			'typeIn'             => [
-				'type'        => [ 'list_of' => 'ProductTypesEnum' ],
-				'description' => __( 'Limit result set to products assigned to a group of specific types.', 'wp-graphql-woocommerce' ),
-			],
-			'typeNotIn'          => [
-				'type'        => [ 'list_of' => 'ProductTypesEnum' ],
-				'description' => __( 'Limit result set to products not assigned to a group of specific types.', 'wp-graphql-woocommerce' ),
-			],
-			'sku'                => [
+			'sku'                 => [
 				'type'        => 'String',
-				'description' => __( 'Limit result set to products with specific SKU(s). Use commas to separate.', 'wp-graphql-woocommerce' ),
+				'description' => static function () {
+					return __( 'Limit result set to products with specific SKU(s). Use commas to separate.', 'graphql-for-ecommerce' );
+				},
 			],
-			'featured'           => [
+			'featured'            => [
 				'type'        => 'Boolean',
-				'description' => __( 'Limit result set to featured products.', 'wp-graphql-woocommerce' ),
+				'description' => static function () {
+					return __( 'Limit result set to featured products.', 'graphql-for-ecommerce' );
+				},
 			],
-			'category'           => [
+			'category'            => [
 				'type'        => 'String',
-				'description' => __( 'Limit result set to products assigned a specific category name.', 'wp-graphql-woocommerce' ),
+				'description' => static function () {
+					return __( 'Limit result set to products assigned a specific category name.', 'graphql-for-ecommerce' );
+				},
 			],
-			'categoryIn'         => [
+			'categoryIn'          => [
 				'type'        => [ 'list_of' => 'String' ],
-				'description' => __( 'Limit result set to products assigned to a group of specific categories by name.', 'wp-graphql-woocommerce' ),
+				'description' => static function () {
+					return __( 'Limit result set to products assigned to a group of specific categories by name.', 'graphql-for-ecommerce' );
+				},
 			],
-			'categoryNotIn'      => [
+			'categoryNotIn'       => [
 				'type'        => [ 'list_of' => 'String' ],
-				'description' => __( 'Limit result set to products not assigned to a group of specific categories by name.', 'wp-graphql-woocommerce' ),
+				'description' => static function () {
+					return __( 'Limit result set to products not assigned to a group of specific categories by name.', 'graphql-for-ecommerce' );
+				},
 			],
-			'categoryId'         => [
+			'categoryId'          => [
 				'type'        => 'Int',
-				'description' => __( 'Limit result set to products assigned a specific category name.', 'wp-graphql-woocommerce' ),
+				'description' => static function () {
+					return __( 'Limit result set to products assigned a specific category name.', 'graphql-for-ecommerce' );
+				},
 			],
-			'categoryIdIn'       => [
+			'categoryIdIn'        => [
 				'type'        => [ 'list_of' => 'Int' ],
-				'description' => __( 'Limit result set to products assigned to a specific group of category IDs.', 'wp-graphql-woocommerce' ),
+				'description' => static function () {
+					return __( 'Limit result set to products assigned to a specific group of category IDs.', 'graphql-for-ecommerce' );
+				},
 			],
-			'categoryIdNotIn'    => [
+			'categoryIdNotIn'     => [
 				'type'        => [ 'list_of' => 'Int' ],
-				'description' => __( 'Limit result set to products not assigned to a specific group of category IDs.', 'wp-graphql-woocommerce' ),
+				'description' => static function () {
+					return __( 'Limit result set to products not assigned to a specific group of category IDs.', 'graphql-for-ecommerce' );
+				},
 			],
-			'tag'                => [
+			'tag'                 => [
 				'type'        => 'String',
-				'description' => __( 'Limit result set to products assigned a specific tag name.', 'wp-graphql-woocommerce' ),
+				'description' => static function () {
+					return __( 'Limit result set to products assigned a specific tag name.', 'graphql-for-ecommerce' );
+				},
 			],
-			'tagIn'              => [
+			'tagIn'               => [
 				'type'        => [ 'list_of' => 'String' ],
-				'description' => __( 'Limit result set to products assigned to a specific group of tags by name.', 'wp-graphql-woocommerce' ),
+				'description' => static function () {
+					return __( 'Limit result set to products assigned to a specific group of tags by name.', 'graphql-for-ecommerce' );
+				},
 			],
-			'tagNotIn'           => [
+			'tagNotIn'            => [
 				'type'        => [ 'list_of' => 'String' ],
-				'description' => __( 'Limit result set to products not assigned to a specific group of tags by name.', 'wp-graphql-woocommerce' ),
+				'description' => static function () {
+					return __( 'Limit result set to products not assigned to a specific group of tags by name.', 'graphql-for-ecommerce' );
+				},
 			],
-			'tagId'              => [
+			'tagId'               => [
 				'type'        => 'Int',
-				'description' => __( 'Limit result set to products assigned a specific tag ID.', 'wp-graphql-woocommerce' ),
+				'description' => static function () {
+					return __( 'Limit result set to products assigned a specific tag ID.', 'graphql-for-ecommerce' );
+				},
 			],
-			'tagIdIn'            => [
+			'tagIdIn'             => [
 				'type'        => [ 'list_of' => 'Int' ],
-				'description' => __( 'Limit result set to products assigned to a specific group of tag IDs.', 'wp-graphql-woocommerce' ),
+				'description' => static function () {
+					return __( 'Limit result set to products assigned to a specific group of tag IDs.', 'graphql-for-ecommerce' );
+				},
 			],
-			'tagIdNotIn'         => [
+			'tagIdNotIn'          => [
 				'type'        => [ 'list_of' => 'Int' ],
-				'description' => __( 'Limit result set to products not assigned to a specific group of tag IDs.', 'wp-graphql-woocommerce' ),
+				'description' => static function () {
+					return __( 'Limit result set to products not assigned to a specific group of tag IDs.', 'graphql-for-ecommerce' );
+				},
 			],
-			'shippingClassId'    => [
+			'productBrand'        => [
+				'type'        => 'String',
+				'description' => static function () {
+					return __( 'Limit result set to products assigned a specific brand name.', 'graphql-for-ecommerce' );
+				},
+			],
+			'productBrandIn'      => [
+				'type'        => [ 'list_of' => 'String' ],
+				'description' => static function () {
+					return __( 'Limit result set to products assigned to a specific group of brands by name.', 'graphql-for-ecommerce' );
+				},
+			],
+			'productBrandNotIn'   => [
+				'type'        => [ 'list_of' => 'String' ],
+				'description' => static function () {
+					return __( 'Limit result set to products not assigned to a specific group of brands by name.', 'graphql-for-ecommerce' );
+				},
+			],
+			'productBrandId'      => [
 				'type'        => 'Int',
-				'description' => __( 'Limit result set to products assigned a specific shipping class ID.', 'wp-graphql-woocommerce' ),
+				'description' => static function () {
+					return __( 'Limit result set to products assigned a specific brand ID.', 'graphql-for-ecommerce' );
+				},
 			],
-			'attributes'         => [
+			'productBrandIdIn'    => [
+				'type'        => [ 'list_of' => 'Int' ],
+				'description' => static function () {
+					return __( 'Limit result set to products assigned to a specific group of brand IDs.', 'graphql-for-ecommerce' );
+				},
+			],
+			'productBrandIdNotIn' => [
+				'type'        => [ 'list_of' => 'Int' ],
+				'description' => static function () {
+					return __( 'Limit result set to products not assigned to a specific group of brand IDs.', 'graphql-for-ecommerce' );
+				},
+			],
+			'shippingClassId'     => [
+				'type'        => 'Int',
+				'description' => static function () {
+					return __( 'Limit result set to products assigned a specific shipping class ID.', 'graphql-for-ecommerce' );
+				},
+			],
+			'attributes'          => [
 				'type'        => 'ProductAttributeQueryInput',
-				'description' => __( 'Limit result set to products with selected global attribute queries.', 'wp-graphql-woocommerce' ),
+				'description' => static function () {
+					return __( 'Limit result set to products with selected global attribute queries.', 'graphql-for-ecommerce' );
+				},
 			],
-			'attribute'          => [
+			'attribute'           => [
 				'type'              => 'String',
-				'description'       => __( 'Limit result set to products with a specific global product attribute', 'wp-graphql-woocommerce' ),
+				'description'       => static function () {
+					return __( 'Limit result set to products with a specific global product attribute', 'graphql-for-ecommerce' );
+				},
 				'deprecationReason' => 'Use attributes instead.',
 			],
-			'attributeTerm'      => [
+			'attributeTerm'       => [
 				'type'              => 'String',
-				'description'       => __( 'Limit result set to products with a specific global product attribute term ID (required an assigned attribute).', 'wp-graphql-woocommerce' ),
+				'description'       => static function () {
+					return __( 'Limit result set to products with a specific global product attribute term ID (required an assigned attribute).', 'graphql-for-ecommerce' );
+				},
 				'deprecationReason' => 'Use attributes instead.',
 			],
-			'stockStatus'        => [
+			'stockStatus'         => [
 				'type'        => [ 'list_of' => 'StockStatusEnum' ],
-				'description' => __( 'Limit result set to products in stock or out of stock.', 'wp-graphql-woocommerce' ),
+				'description' => static function () {
+					return __( 'Limit result set to products in stock or out of stock.', 'graphql-for-ecommerce' );
+				},
 			],
-			'onSale'             => [
+			'onSale'              => [
 				'type'        => 'Boolean',
-				'description' => __( 'Limit result set to products on sale.', 'wp-graphql-woocommerce' ),
+				'description' => static function () {
+					return __( 'Limit result set to products on sale.', 'graphql-for-ecommerce' );
+				},
 			],
-			'minPrice'           => [
+			'minPrice'            => [
 				'type'        => 'Float',
-				'description' => __( 'Limit result set to products based on a minimum price.', 'wp-graphql-woocommerce' ),
+				'description' => static function () {
+					return __( 'Limit result set to products based on a minimum price.', 'graphql-for-ecommerce' );
+				},
 			],
-			'maxPrice'           => [
+			'maxPrice'            => [
 				'type'        => 'Float',
-				'description' => __( 'Limit result set to products based on a maximum price.', 'wp-graphql-woocommerce' ),
+				'description' => static function () {
+					return __( 'Limit result set to products based on a maximum price.', 'graphql-for-ecommerce' );
+				},
 			],
-			'search'             => [
+			'search'              => [
 				'type'        => 'String',
-				'description' => __( 'Limit result set to products based on a keyword search.', 'wp-graphql-woocommerce' ),
+				'description' => static function () {
+					return __( 'Limit result set to products based on a keyword search.', 'graphql-for-ecommerce' );
+				},
 			],
-			'visibility'         => [
+			'visibility'          => [
 				'type'        => 'CatalogVisibilityEnum',
-				'description' => __( 'Limit result set to products with a specific visibility level.', 'wp-graphql-woocommerce' ),
+				'description' => static function () {
+					return __( 'Limit result set to products with a specific visibility level.', 'graphql-for-ecommerce' );
+				},
 			],
-			'taxonomyFilter'     => [
+			'taxonomyFilter'      => [
 				'type'        => 'ProductTaxonomyInput',
-				'description' => __( 'Limit result set with complex set of taxonomy filters.', 'wp-graphql-woocommerce' ),
+				'description' => static function () {
+					return __( 'Limit result set with complex set of taxonomy filters.', 'graphql-for-ecommerce' );
+				},
 			],
-			'orderby'            => [
+			'orderby'             => [
 				'type'        => [ 'list_of' => 'ProductsOrderbyInput' ],
-				'description' => __( 'What paramater to use to order the objects by.', 'wp-graphql-woocommerce' ),
+				'description' => static function () {
+					return __( 'What paramater to use to order the objects by.', 'graphql-for-ecommerce' );
+				},
 			],
-			'supportedTypesOnly' => [
+			'supportedTypesOnly'  => [
 				'type'        => 'Boolean',
-				'description' => __( 'Limit result types to types supported by WooGraphQL.', 'wp-graphql-woocommerce' ),
+				'description' => static function () {
+					return __( 'Limit result types to types supported by WooGraphQL.', 'graphql-for-ecommerce' );
+				},
 			],
-			'includeVariations'  => [
-				'type'        => 'Boolean',
-				'description' => __( 'Include variations in the result set.', 'wp-graphql-woocommerce' ),
-			],
-			'rating'             => [
+			'rating'              => [
 				'type'        => [ 'list_of' => 'Integer' ],
-				'description' => __( 'Limit result set to products with a specific average rating. Must be between 1 and 5', 'wp-graphql-woocommerce' ),
+				'description' => static function () {
+					return __( 'Limit result set to products with a specific average rating. Must be between 1 and 5', 'graphql-for-ecommerce' );
+				},
 			],
 		];
 
 		if ( wc_tax_enabled() ) {
 			$args['taxClass'] = [
 				'type'        => 'TaxClassEnum',
-				'description' => __( 'Limit result set to products with a specific tax class.', 'wp-graphql-woocommerce' ),
+				'description' => static function () {
+					return __( 'Limit result set to products with a specific tax class.', 'graphql-for-ecommerce' );
+				},
 			];
 		}
 
-		return array_merge( get_wc_cpt_connection_args(), $args, $extra_args );
+		return array_merge( get_wc_cpt_connection_args(), $args );
+	}
+
+	/**
+	 * Returns connection args for the Product connection (excludes variation types).
+	 *
+	 * @return array
+	 */
+	public static function get_product_connection_args(): array {
+		return array_merge(
+			self::get_base_connection_args(),
+			[
+				'type'      => [
+					'type'        => 'ProductTypesEnum',
+					'description' => static function () {
+						return __( 'Limit result set to products assigned a specific type.', 'graphql-for-ecommerce' );
+					},
+				],
+				'typeIn'    => [
+					'type'        => [ 'list_of' => 'ProductTypesEnum' ],
+					'description' => static function () {
+						return __( 'Limit result set to products assigned to a group of specific types.', 'graphql-for-ecommerce' );
+					},
+				],
+				'typeNotIn' => [
+					'type'        => [ 'list_of' => 'ProductTypesEnum' ],
+					'description' => static function () {
+						return __( 'Limit result set to products not assigned to a group of specific types.', 'graphql-for-ecommerce' );
+					},
+				],
+			]
+		);
+	}
+
+	/**
+	 * Returns connection args for the ProductUnion connection (includes variation types).
+	 *
+	 * @return array
+	 */
+	public static function get_product_union_connection_args(): array {
+		return array_merge(
+			self::get_base_connection_args(),
+			[
+				'type'              => [
+					'type'        => 'ProductTypesWithVariationsEnum',
+					'description' => static function () {
+						return __( 'Limit result set to products assigned a specific type.', 'graphql-for-ecommerce' );
+					},
+				],
+				'typeIn'            => [
+					'type'        => [ 'list_of' => 'ProductTypesWithVariationsEnum' ],
+					'description' => static function () {
+						return __( 'Limit result set to products assigned to a group of specific types.', 'graphql-for-ecommerce' );
+					},
+				],
+				'typeNotIn'         => [
+					'type'        => [ 'list_of' => 'ProductTypesWithVariationsEnum' ],
+					'description' => static function () {
+						return __( 'Limit result set to products not assigned to a group of specific types.', 'graphql-for-ecommerce' );
+					},
+				],
+				'includeVariations' => [
+					'type'        => 'Boolean',
+					'description' => static function () {
+						return __( 'Include variations in the result set.', 'graphql-for-ecommerce' );
+					},
+				],
+			]
+		);
+	}
+
+	/**
+	 * Returns array of where args.
+	 *
+	 * @deprecated Use get_product_connection_args() or get_product_union_connection_args() instead.
+	 *
+	 * @param array $extra_args  Extra connection args.
+	 *
+	 * @return array
+	 */
+	public static function get_connection_args( $extra_args = [] ): array {
+		return array_merge( self::get_product_union_connection_args(), $extra_args );
 	}
 }

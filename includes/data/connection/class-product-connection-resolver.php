@@ -320,6 +320,57 @@ class Product_Connection_Resolver extends AbstractConnectionResolver {
 	}
 
 	/**
+	 * Process taxonomy filters for taxonomyFilter argument.
+	 *
+	 * @param array  $filters  Array of taxonomy filters.
+	 * @param string $relation The relation between filters (AND/OR).
+	 *
+	 * @return array
+	 */
+	private function process_taxonomy_filters( array $filters, string $relation ) {
+		$tax_groups = [];
+
+		foreach ( $filters as $filter ) {
+			$common = [
+				'taxonomy' => $filter['taxonomy'],
+				'operator' => ! empty( $filter['operator'] ) ? $filter['operator'] : 'IN',
+			];
+
+			if ( ! empty( $filter['ids'] ) ) {
+				$tax_groups[] = array_merge(
+					$common,
+					[
+						'field' => 'ID',
+						'terms' => $filter['ids'],
+					]
+				);
+			}
+
+			if ( ! empty( $filter['terms'] ) ) {
+				$tax_groups[] = array_merge(
+					$common,
+					[
+						'field' => 'slug',
+						'terms' => $filter['terms'],
+					]
+				);
+			}
+		}//end foreach
+
+		if ( empty( $tax_groups ) ) {
+			return [];
+		}
+
+		if ( 1 === count( $tax_groups ) ) {
+			return $tax_groups[0];
+		}
+
+		// Add relation if there are multiple groups.
+		$tax_groups['relation'] = $relation;
+		return $tax_groups;
+	}
+
+	/**
 	 * This sets up the "allowed" args, and translates the GraphQL-friendly keys to WP_Query
 	 * friendly keys. There's probably a cleaner/more dynamic way to approach this, but
 	 * this was quick. I'd be down to explore more dynamic ways to map this, but for
@@ -367,21 +418,27 @@ class Product_Connection_Resolver extends AbstractConnectionResolver {
 
 		$tax_query     = [];
 		$taxonomy_args = [
-			'type'            => 'product_type',
-			'typeIn'          => 'product_type',
-			'typeNotIn'       => 'product_type',
-			'category'        => 'product_cat',
-			'categoryIn'      => 'product_cat',
-			'categoryNotIn'   => 'product_cat',
-			'categoryId'      => 'product_cat',
-			'categoryIdIn'    => 'product_cat',
-			'categoryIdNotIn' => 'product_cat',
-			'tag'             => 'product_tag',
-			'tagIn'           => 'product_tag',
-			'tagNotIn'        => 'product_tag',
-			'tagId'           => 'product_tag',
-			'tagIdIn'         => 'product_tag',
-			'tagIdNotIn'      => 'product_tag',
+			'type'                => 'product_type',
+			'typeIn'              => 'product_type',
+			'typeNotIn'           => 'product_type',
+			'category'            => 'product_cat',
+			'categoryIn'          => 'product_cat',
+			'categoryNotIn'       => 'product_cat',
+			'categoryId'          => 'product_cat',
+			'categoryIdIn'        => 'product_cat',
+			'categoryIdNotIn'     => 'product_cat',
+			'tag'                 => 'product_tag',
+			'tagIn'               => 'product_tag',
+			'tagNotIn'            => 'product_tag',
+			'tagId'               => 'product_tag',
+			'tagIdIn'             => 'product_tag',
+			'tagIdNotIn'          => 'product_tag',
+			'productBrand'        => 'product_brand',
+			'productBrandIn'      => 'product_brand',
+			'productBrandNotIn'   => 'product_brand',
+			'productBrandId'      => 'product_brand',
+			'productBrandIdIn'    => 'product_brand',
+			'productBrandIdNotIn' => 'product_brand',
 		];
 
 		foreach ( $taxonomy_args as $field => $taxonomy ) {
@@ -430,6 +487,9 @@ class Product_Connection_Resolver extends AbstractConnectionResolver {
 					case 'tag':
 					case 'tagIn':
 					case 'tagNotIn':
+					case 'productBrand':
+					case 'productBrandIn':
+					case 'productBrandNotIn':
 						// Get terms.
 						$terms = $where_args[ $field ];
 						if ( ! is_array( $terms ) ) {
@@ -440,7 +500,7 @@ class Product_Connection_Resolver extends AbstractConnectionResolver {
 						$term_taxonomy_ids = [];
 						foreach ( $terms as $term_slug ) {
 							$term = get_term_by( 'slug', $term_slug, $taxonomy );
-							if ( ! $term || is_wp_error( $term ) ) {
+							if ( ! $term ) {
 								continue;
 							}
 							$term_taxonomy_ids[] = $term->term_taxonomy_id;
@@ -458,6 +518,9 @@ class Product_Connection_Resolver extends AbstractConnectionResolver {
 					case 'tagId':
 					case 'tagIdIn':
 					case 'tagIdNotIn':
+					case 'productBrandId':
+					case 'productBrandIdIn':
+					case 'productBrandIdNotIn':
 						$tax_query[] = [
 							'taxonomy' => $taxonomy,
 							'field'    => 'term_id',
@@ -472,7 +535,7 @@ class Product_Connection_Resolver extends AbstractConnectionResolver {
 		// Filter by attribute and term.
 		if ( ! empty( $where_args['attribute'] ) && ! empty( $where_args['attributeTerm'] ) ) {
 			graphql_debug(
-				__( 'The "attribute" and "attributeTerm" arguments have been deprecated. Please use the "attributes" argument instead.', 'wp-graphql-woocommerce' ),
+				__( 'The "attribute" and "attributeTerm" arguments have been deprecated. Please use the "attributes" argument instead.', 'graphql-for-ecommerce' ),
 			);
 			if ( in_array( $where_args['attribute'], \wc_get_attribute_taxonomy_names(), true ) ) {
 				$tax_query[] = [
@@ -525,7 +588,7 @@ class Product_Connection_Resolver extends AbstractConnectionResolver {
 			if ( 1 < count( $att_queries ) ) {
 				$relation = ! empty( $where_args['attributes']['relation'] ) ? $where_args['attributes']['relation'] : 'AND';
 				if ( 'NOT_IN' === $relation ) {
-					graphql_debug( __( 'The "NOT_IN" relation is not supported for attributes. Please use "IN" or "AND" instead.', 'wp-graphql-woocommerce' ) );
+					graphql_debug( __( 'The "NOT_IN" relation is not supported for attributes. Please use "IN" or "AND" instead.', 'graphql-for-ecommerce' ) );
 					$relation = 'IN';
 				}
 
@@ -630,45 +693,17 @@ class Product_Connection_Resolver extends AbstractConnectionResolver {
 		$tax_filter_query = [];
 		if ( ! empty( $where_args['taxonomyFilter'] ) ) {
 			$taxonomy_query = $where_args['taxonomyFilter'];
-			$relation       = ! empty( $taxonomy_query['relation'] ) ? $taxonomy_query['relation'] : 'AND';
 
-			if ( ! empty( $taxonomy_query['filters'] ) ) {
-				$tax_groups = [];
-				foreach ( $taxonomy_query['filters'] as $filter ) {
-					$common = [
-						'taxonomy' => $filter['taxonomy'],
-						'operator' => ! empty( $filter['operator'] ) ? $filter['operator'] : 'IN',
-					];
-
-					if ( ! empty( $filter['ids'] ) ) {
-						$tax_groups[] = array_merge(
-							$common,
-							[
-								'field' => 'ID',
-								'terms' => $filter['ids'],
-							]
-						);
-					}
-
-					if ( ! empty( $filter['terms'] ) ) {
-						$tax_groups[] = array_merge(
-							$common,
-							[
-								'field' => 'slug',
-								'terms' => $filter['terms'],
-							]
-						);
-					}
-				}//end foreach
-
-				if ( ! empty( $tax_groups ) ) {
-					array_push( $tax_filter_query, ...$tax_groups );
-				}
-
-				if ( 1 < count( $tax_filter_query ) ) {
-					$tax_filter_query['relation'] = $relation;
-				}
-			}//end if
+			// Handle new "or" and "and" syntax.
+			if ( ! empty( $taxonomy_query['or'] ) ) {
+				$tax_filter_query = $this->process_taxonomy_filters( $taxonomy_query['or'], 'OR' );
+			} elseif ( ! empty( $taxonomy_query['and'] ) ) {
+				$tax_filter_query = $this->process_taxonomy_filters( $taxonomy_query['and'], 'AND' );
+			} elseif ( ! empty( $taxonomy_query['filters'] ) ) {
+				// Handle legacy "relation" + "filters" syntax.
+				$relation         = ! empty( $taxonomy_query['relation'] ) ? $taxonomy_query['relation'] : 'AND';
+				$tax_filter_query = $this->process_taxonomy_filters( $taxonomy_query['filters'], $relation );
+			}
 		}//end if
 
 		if ( ! empty( $tax_filter_query ) ) {

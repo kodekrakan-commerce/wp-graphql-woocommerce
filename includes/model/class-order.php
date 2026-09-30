@@ -112,7 +112,7 @@ class Order extends Model {
 
 		// Check if order is valid.
 		if ( ! $data instanceof \WC_Abstract_Order ) {
-			throw new \Exception( __( 'Failed to retrieve order data source', 'wp-graphql-woocommerce' ) );
+			throw new \Exception( __( 'Failed to retrieve order data source', 'graphql-for-ecommerce' ) );
 		}
 
 		$this->data                = $data;
@@ -152,6 +152,19 @@ class Order extends Model {
 			'commentCount',
 			'commentStatus',
 		];
+
+		if ( 'shop_order_refund' === $this->get_type() ) {
+			$allowed_restricted_fields = array_merge(
+				$allowed_restricted_fields,
+				[
+					'title',
+					'amount',
+					'reason',
+					'refunded_by_id',
+					'date',
+				]
+			);
+		}
 
 		$restricted_cap = $this->get_restricted_cap();
 
@@ -350,7 +363,7 @@ class Order extends Model {
 			throw new UserError(
 				__(
 					'User does not have the capabilities necessary to delete this object.',
-					'wp-graphql-woocommerce'
+					'graphql-for-ecommerce'
 				)
 			);
 		}

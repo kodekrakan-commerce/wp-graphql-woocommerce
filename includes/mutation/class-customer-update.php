@@ -48,27 +48,39 @@ class Customer_Update {
 			[
 				'id'                    => [
 					'type'        => 'ID',
-					'description' => __( 'The ID of the user', 'wp-graphql-woocommerce' ),
+					'description' => static function () {
+						return __( 'The ID of the user', 'graphql-for-ecommerce' );
+					},
 				],
 				'billing'               => [
 					'type'        => 'CustomerAddressInput',
-					'description' => __( 'Customer billing information', 'wp-graphql-woocommerce' ),
+					'description' => static function () {
+						return __( 'Customer billing information', 'graphql-for-ecommerce' );
+					},
 				],
 				'shipping'              => [
 					'type'        => 'CustomerAddressInput',
-					'description' => __( 'Customer shipping address', 'wp-graphql-woocommerce' ),
+					'description' => static function () {
+						return __( 'Customer shipping address', 'graphql-for-ecommerce' );
+					},
 				],
 				'shippingSameAsBilling' => [
 					'type'        => 'Boolean',
-					'description' => __( 'Customer shipping is identical to billing address', 'wp-graphql-woocommerce' ),
+					'description' => static function () {
+						return __( 'Customer shipping is identical to billing address', 'graphql-for-ecommerce' );
+					},
 				],
 				'metaData'              => [
-					'description' => __( 'Meta data.', 'wp-graphql-woocommerce' ),
+					'description' => static function () {
+						return __( 'Meta data.', 'graphql-for-ecommerce' );
+					},
 					'type'        => [ 'list_of' => 'MetaDataInput' ],
 				],
 				'isSession'             => [
 					'type'        => 'Boolean',
-					'description' => __( 'Whether to save changes on the session or in the database', 'wp-graphql-woocommerce' ),
+					'description' => static function () {
+						return __( 'Whether to save changes on the session or in the database', 'graphql-for-ecommerce' );
+					},
 				],
 			]
 		);
@@ -113,7 +125,7 @@ class Customer_Update {
 				$payload = $update_user( $input, $context, $info );
 
 				if ( empty( $payload ) ) {
-					throw new UserError( __( 'Failed to update customer.', 'wp-graphql-woocommerce' ) );
+					throw new UserError( __( 'Failed to update customer.', 'graphql-for-ecommerce' ) );
 				}
 			}
 

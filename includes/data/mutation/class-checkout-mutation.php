@@ -68,12 +68,13 @@ class Checkout_Mutation {
 		$data = [
 			'terms'                     => (int) isset( $input['terms'] ),
 			'createaccount'             => (int) ! empty( $input['account'] ),
+			'authenticate_account'      => ! empty( $input['account']['authenticate'] ),
 			'payment_method'            => isset( $input['paymentMethod'] ) ? $input['paymentMethod'] : '',
 			'shipping_method'           => isset( $input['shippingMethod'] ) ? $input['shippingMethod'] : '',
 			'ship_to_different_address' => ! empty( $input['shipToDifferentAddress'] ) && ! wc_ship_to_billing_address_only(),
 		];
 
-		$skipped = [];
+		$skipped = [ 'fees' ];
 		foreach ( self::get_checkout_fields() as $fieldset_key => $fieldset ) {
 			if ( self::maybe_skip_fieldset( $fieldset_key, $data ) ) {
 				$skipped[] = $fieldset_key;
@@ -95,6 +96,30 @@ class Checkout_Mutation {
 				}
 			}
 		}//end foreach
+
+		if ( ! empty( $input['fees'] ) ) {
+			$fees = $input['fees'];
+			add_action(
+				'woocommerce_cart_calculate_fees',
+				static function () use ( $fees ) {
+					foreach ( $fees as $fee_input ) {
+						if ( empty( $fee_input['name'] ) || empty( $fee_input['amount'] ) ) {
+							// TODO: Log invalid fee input.
+							continue;
+						}
+
+						$fee_args = [
+							$fee_input['name'],
+							$fee_input['amount'],
+							isset( $fee_input['taxable'] ) ? $fee_input['taxable'] : false,
+							isset( $fee_input['taxClass'] ) ? $fee_input['taxClass'] : '',
+						];
+
+						\WC()->cart->add_fee( ...$fee_args );
+					}
+				}
+			);
+		}
 
 		if ( in_array( 'shipping', $skipped, true ) && ( \WC()->cart->needs_shipping_address() || \wc_ship_to_billing_address_only() ) ) {
 			foreach ( self::get_checkout_fields( 'shipping' ) as $field => $input_key ) {
@@ -139,6 +164,7 @@ class Checkout_Mutation {
 				'postcode'   => 'postcode',
 				'state'      => 'state',
 				'country'    => 'country',
+				'phone'      => 'phone',
 			],
 			'account'  => [
 				'username' => 'username',
@@ -280,10 +306,12 @@ class Checkout_Mutation {
 				throw new UserError( $customer_id->get_error_message() );
 			}
 
-			wc_set_customer_auth_cookie( $customer_id );
+			if ( ! empty( $data['authenticate_account'] ) ) {
+				wc_set_customer_auth_cookie( $customer_id );
 
-			// As we are now logged in, checkout will need to refresh to show logged in data.
-			WC()->session->set( 'reload_checkout', true );
+				// As we are now logged in, checkout will need to refresh to show logged in data.
+				WC()->session->set( 'reload_checkout', true );
+			}
 
 			// Also, recalculate cart totals to reveal any role-based discounts that were unavailable before registering.
 			WC()->cart->calculate_totals();
@@ -393,11 +421,11 @@ class Checkout_Mutation {
 						switch ( $country ) {
 							case 'IE':
 								/* translators: %1$s: field name, %2$s finder.eircode.ie URL */
-								$postcode_validation_notice = sprintf( __( '%1$s is not valid. You can look up the correct Eircode. %2$s', 'wp-graphql-woocommerce' ), $field_label, 'https://finder.eircode.ie' );
+								$postcode_validation_notice = sprintf( __( '%1$s is not valid. You can look up the correct Eircode. %2$s', 'graphql-for-ecommerce' ), $field_label, 'https://finder.eircode.ie' );
 								break;
 							default:
 								/* translators: %s: field name */
-								$postcode_validation_notice = sprintf( __( '%s is not a valid postcode / ZIP.', 'wp-graphql-woocommerce' ), $field_label );
+								$postcode_validation_notice = sprintf( __( '%s is not a valid postcode / ZIP.', 'graphql-for-ecommerce' ), $field_label );
 						}
 						// phpcs:ignore WordPress.NamingConventions.PrefixAllGlobals.NonPrefixedHooknameFound
 						throw new UserError( apply_filters( 'woocommerce_checkout_postcode_validation_notice', $postcode_validation_notice, $country, $data[ $key ] ) );
@@ -407,7 +435,7 @@ class Checkout_Mutation {
 				if ( \str_ends_with( $key, 'phone' ) ) {
 					if ( $validate_fieldset && '' !== $data[ $key ] && ! \WC_Validation::is_phone( $data[ $key ] ) ) {
 						/* translators: %s: phone number */
-						throw new UserError( sprintf( __( '%s is not a valid phone number.', 'wp-graphql-woocommerce' ), $field_label ) );
+						throw new UserError( sprintf( __( '%s is not a valid phone number.', 'graphql-for-ecommerce' ), $field_label ) );
 					}
 				}
 
@@ -417,7 +445,7 @@ class Checkout_Mutation {
 
 					if ( $validate_fieldset && ! $email_is_valid ) {
 						/* translators: %s: email address */
-						throw new UserError( sprintf( __( '%s is not a valid email address.', 'wp-graphql-woocommerce' ), $field_label ) );
+						throw new UserError( sprintf( __( '%s is not a valid email address.', 'graphql-for-ecommerce' ), $field_label ) );
 					}
 				}
 
@@ -436,7 +464,7 @@ class Checkout_Mutation {
 
 						if ( $validate_fieldset && ! in_array( $data[ $key ], $valid_state_values, true ) ) {
 							/* translators: 1: state field 2: valid states */
-							throw new UserError( sprintf( __( '%1$s is not valid. Please enter one of the following: %2$s', 'wp-graphql-woocommerce' ), $field_label, implode( ', ', $valid_states ) ) );
+							throw new UserError( sprintf( __( '%1$s is not valid. Please enter one of the following: %2$s', 'graphql-for-ecommerce' ), $field_label, implode( ', ', $valid_states ) ) );
 						}
 					}
 				}
@@ -447,35 +475,32 @@ class Checkout_Mutation {
 	/**
 	 * Validates that the checkout has enough info to proceed.
 	 *
-	 * @param array $data  An array of posted data.
+	 * @param array     $data  An array of posted data.
+	 * @param  \WP_Error $errors Validation errors.
 	 *
 	 * @throws \GraphQL\Error\UserError Invalid input.
 	 *
 	 * @return void
 	 */
-	protected static function validate_checkout( &$data ) {
+	protected static function validate_checkout( &$data, &$errors ) {
 		self::validate_data( $data );
 		WC()->checkout()->check_cart_items();
 
-		// Throw cart validation errors stored in the session.
-		$cart_item_errors = wc_get_notices( 'error' );
-
-		if ( ! empty( $cart_item_errors ) ) {
-			$cart_item_error_msgs = implode( ' ', array_column( $cart_item_errors, 'notice' ) );
-			\wc_clear_notices();
-			throw new UserError( $cart_item_error_msgs );
+		if ( empty( $data['woocommerce_checkout_update_totals'] ) && empty( $data['terms'] ) && ! empty( $data['terms-field'] ) ) {
+			$errors->add( 'terms', __( 'Please read and accept the terms and conditions to proceed with your order.', 'graphql-for-ecommerce' ) );
 		}
 
 		if ( WC()->cart->needs_shipping() ) {
 			$shipping_country = WC()->customer->get_shipping_country();
 
 			if ( empty( $shipping_country ) ) {
-				throw new UserError( __( 'Please enter an address to continue.', 'wp-graphql-woocommerce' ) );
+				$errors->add( 'shipping', __( 'Please enter an address to continue.', 'graphql-for-ecommerce' ) );
 			} elseif ( ! in_array( WC()->customer->get_shipping_country(), array_keys( WC()->countries->get_shipping_countries() ), true ) ) {
-				throw new UserError(
+				$errors->add(
+					'shipping',
 					sprintf(
 						/* translators: %s: shipping location */
-						__( 'Unfortunately, we do not ship %s. Please enter an alternative shipping address.', 'wp-graphql-woocommerce' ),
+						__( 'Unfortunately, we do not ship %s. Please enter an alternative shipping address.', 'graphql-for-ecommerce' ),
 						WC()->countries->shipping_to_prefix() . ' ' . WC()->customer->get_shipping_country()
 					)
 				);
@@ -484,7 +509,7 @@ class Checkout_Mutation {
 
 				foreach ( WC()->shipping()->get_packages() as $i => $package ) {
 					if ( ! isset( $chosen_shipping_methods[ $i ], $package['rates'][ $chosen_shipping_methods[ $i ] ] ) ) {
-						throw new UserError( __( 'No shipping method has been selected. Please double check your address, or contact us if you need any help.', 'wp-graphql-woocommerce' ) );
+						$errors->add( 'shipping', __( 'No shipping method has been selected. Please double check your address, or contact us if you need any help.', 'graphql-for-ecommerce' ) );
 					}
 				}
 			}
@@ -493,14 +518,15 @@ class Checkout_Mutation {
 		if ( WC()->cart->needs_payment() ) {
 			$available_gateways = WC()->payment_gateways->get_available_payment_gateways();
 			if ( ! isset( $available_gateways[ $data['payment_method'] ] ) ) {
-				throw new UserError( __( 'Invalid payment method.', 'wp-graphql-woocommerce' ) );
+				$errors->add( 'payment', __( 'Invalid payment method.', 'graphql-for-ecommerce' ) );
 			} else {
 				$available_gateways[ $data['payment_method'] ]->validate_fields();
 			}
 		}
 
 		// phpcs:ignore WordPress.NamingConventions.PrefixAllGlobals.NonPrefixedHooknameFound
-		do_action( 'woocommerce_after_checkout_validation', $data, new WP_Error() );
+		do_action( 'woocommerce_after_checkout_validation', $data, $errors );
+		do_action( 'graphql_woocommerce_after_checkout_validation', $data, $errors );
 	}
 
 	/**
@@ -517,30 +543,11 @@ class Checkout_Mutation {
 		$available_gateways = WC()->payment_gateways->get_available_payment_gateways();
 
 		if ( ! isset( $available_gateways[ $payment_method ] ) ) {
-			throw new UserError( __( 'Cannot process invalid payment method.', 'wp-graphql-woocommerce' ) );
+			throw new UserError( __( 'Cannot process invalid payment method.', 'graphql-for-ecommerce' ) );
 		}
 
 		// Store Order ID in session so it can be re-used after payment failure.
 		WC()->session->set( 'order_awaiting_payment', $order_id );
-
-		/**
-		 * Allow an integration to defer payment after checkout validation and order creation.
-		 *
-		 * Return null for normal gateway processing, or a payment result array.
-		 * A deferred result must not use 'success': that empties the cart below.
-		 * This hook never applies to prepaid/free orders or native WooCommerce checkout.
-		 *
-		 * @param array|null $result         Payment result override.
-		 * @param int        $order_id       Validated checkout order ID.
-		 * @param string     $payment_method Available gateway ID.
-		 */
-		$deferred_result = apply_filters( 'graphql_woocommerce_checkout_payment_result', null, $order_id, $payment_method );
-		if ( null !== $deferred_result ) {
-			if ( ! is_array( $deferred_result ) || ! isset( $deferred_result['result'], $deferred_result['redirect'] ) ) {
-				throw new UserError( __( 'Invalid checkout payment result.', 'wp-graphql-woocommerce' ) );
-			}
-			return $deferred_result;
-		}
 
 		$process_payment_args = apply_filters(
 			"graphql_{$payment_method}_process_payment_args",
@@ -566,7 +573,7 @@ class Checkout_Mutation {
 	protected static function process_order_without_payment( $order_id, $transaction_id = '' ) {
 		$order = wc_get_order( $order_id );
 		if ( ! is_object( $order ) || ! is_a( $order, \WC_Order::class ) ) {
-			throw new \Exception( __( 'Failed to retrieve order.', 'wp-graphql-woocommerce' ) );
+			throw new \Exception( __( 'Failed to retrieve order.', 'graphql-for-ecommerce' ) );
 		}
 
 		$order->payment_complete( $transaction_id );
@@ -598,7 +605,7 @@ class Checkout_Mutation {
 		do_action( 'woocommerce_before_checkout_process' ); // phpcs:ignore WordPress.NamingConventions.PrefixAllGlobals.NonPrefixedHooknameFound
 
 		if ( WC()->cart->is_empty() ) {
-			throw new UserError( __( 'Sorry, no session found.', 'wp-graphql-woocommerce' ) );
+			throw new UserError( __( 'Sorry, no session found.', 'graphql-for-ecommerce' ) );
 		}
 
 		do_action( 'woocommerce_checkout_process', $data, $context, $info ); // phpcs:ignore WordPress.NamingConventions.PrefixAllGlobals.NonPrefixedHooknameFound
@@ -615,27 +622,20 @@ class Checkout_Mutation {
 		// Update session for customer and totals.
 		self::update_session( $data );
 
-		// WooCommerce's pending order can reserve the last available stock.
-		// Its normal stock validation then rejects an identical checkout retry
-		// before create_order() reaches its native cart-hash reuse branch. Only
-		// reuse an already validated, unchanged order in this exact session.
-		$retry_id = absint( WC()->session->get( 'order_awaiting_payment' ) );
-		$retry_order = $retry_id ? wc_get_order( $retry_id ) : false;
-		if ( $retry_order instanceof \WC_Order
-			&& $retry_order->get_meta( '_woonuxt_deferred_payment' ) === 'yes'
-			&& $retry_order->get_payment_method() === 'stripe'
-			&& $data['payment_method'] === 'stripe'
-			&& $retry_order->has_status( [ 'pending', 'failed' ] )
-			&& ! $retry_order->is_paid()
-			&& $retry_order->has_cart_hash( WC()->cart->get_cart_hash() )
-			&& (int) $retry_order->get_customer_id() === get_current_user_id()
-			&& self::matches_retry_checkout_data( $retry_order, $data ) ) {
-			$results = [ 'result' => 'pending', 'redirect' => '' ];
-			return $retry_id;
+		// Validate posted data and cart items before proceeding.
+		$errors = new WP_Error();
+		self::validate_checkout( $data, $errors );
+
+		foreach ( $errors->errors as $code => $messages ) {
+			$data = $errors->get_error_data( $code );
+			foreach ( $messages as $message ) {
+				wc_add_notice( $message, 'error', $data );
+			}
 		}
 
-		// Validate posted data and cart items before proceeding.
-		self::validate_checkout( $data );
+		if ( 0 < wc_notice_count( 'error' ) ) {
+			throw new UserError( __( 'Failed to validate checkout', 'graphql-for-ecommerce' ) );
+		}
 
 		self::process_customer( $data );
 		$order_id = WC()->checkout->create_order( $data );
@@ -646,33 +646,72 @@ class Checkout_Mutation {
 		}
 
 		if ( ! is_object( $order ) || ! is_a( $order, \WC_Order::class ) ) {
-			throw new UserError( __( 'Unable to create order.', 'wp-graphql-woocommerce' ) );
+			throw new UserError( __( 'Unable to create order.', 'graphql-for-ecommerce' ) );
 		}
 
-		// A narrow guest summary can be reloaded after redirect or cart clearing.
-		// Bind only the newly validated order to this server-side WC session.
-		if ( WC()->session && $order->get_order_key() ) {
-			$summary_orders = WC()->session->get( 'wl_checkout_summary_orders', [] );
-			$summary_orders = is_array( $summary_orders ) ? $summary_orders : [];
-			$summary_orders[ $order_id ] = hash( 'sha256', $order->get_order_key() );
-			WC()->session->set( 'wl_checkout_summary_orders', array_slice( $summary_orders, -10, null, true ) );
+		// Override the "created via" source when provided. WC_Checkout::create_order() hardcodes it to "checkout".
+		if ( ! empty( $input['createdVia'] ) ) {
+			$order->set_created_via( $input['createdVia'] );
+			$order->add_meta_data( '_wc_order_attribution_source_type', $input['createdVia'], true );
+			$order->save();
 		}
 
 		// Add meta data.
 		if ( ! empty( $input['metaData'] ) ) {
 			self::update_order_meta( $order_id, $input['metaData'], $input, $context, $info );
+
+			// Refresh the order object so the hook below receives the updated meta.
+			$order = wc_get_order( $order_id );
+
+			if ( ! is_object( $order ) || ! is_a( $order, \WC_Order::class ) ) {
+				throw new UserError( __( 'Failed to get order with updated meta.', 'graphql-for-ecommerce' ) );
+			}
 		}
 
 		// phpcs:ignore WordPress.NamingConventions.PrefixAllGlobals.NonPrefixedHooknameFound
 		do_action( 'woocommerce_checkout_order_processed', $order_id, $data, $order );
 
-		// The browser cannot attest that an order has been paid. In particular,
-		// isPaid, transactionId and checkout metadata are not provider evidence.
-		// Use the newly created order (after validation/totals) as the authority.
-		if ( $order->needs_payment() ) {
+		if ( WC()->cart->needs_payment() && ( empty( $input['isPaid'] ) ) ) {
 			$results = self::process_order_payment( $order_id, $data['payment_method'] );
 		} else {
-			$results = self::process_order_without_payment( $order_id );
+			$transaction_id = ! empty( $input['transactionId'] ) ? $input['transactionId'] : '';
+
+			/**
+			 * Use this to do some last minute transaction ID validation.
+			 *
+			 * @param bool        $is_valid        Is transaction ID valid.
+			 * @param \WC_Order   $order           Order being processed.
+			 * @param String|null $transaction_id  Order payment transaction ID.
+			 * @param array       $data            Order data.
+			 * @param array       $input           Order raw input data.
+			 * @param \WPGraphQL\AppContext  $context         Request's AppContext instance.
+			 * @param \GraphQL\Type\Definition\ResolveInfo $info            Request's ResolveInfo instance.
+			 */
+			$valid = apply_filters(
+				'graphql_checkout_prepaid_order_validation',
+				true,
+				$order,
+				$transaction_id,
+				$data,
+				$input,
+				$context,
+				$info
+			);
+
+			if ( $valid ) {
+				$results = self::process_order_without_payment( $order_id, $transaction_id );
+			} else {
+				$results = [
+					'result'   => 'failed',
+					'redirect' => apply_filters(
+						'graphql_woocommerce_checkout_payment_failed_redirect',
+						$order->get_checkout_payment_url(),
+						$order,
+						$order_id,
+						$transaction_id
+					),
+				];
+			}
 		}//end if
 
 		if ( 'success' === $results['result'] ) {
@@ -680,33 +719,6 @@ class Checkout_Mutation {
 		}
 
 		return $order_id;
-	}
-
-	/** Check that a retry retains the validated addresses and shipping selection. */
-	protected static function matches_retry_checkout_data( $order, $data ) {
-		foreach ( [ 'billing', 'shipping' ] as $type ) {
-			foreach ( [ 'first_name', 'last_name', 'company', 'address_1', 'address_2',
-				'city', 'state', 'postcode', 'country' ] as $field ) {
-				$getter = 'get_' . $type . '_' . $field;
-				if ( (string) ( $data[ $type . '_' . $field ] ?? '' ) !== (string) $order->{$getter}() ) {
-					return false;
-				}
-			}
-		}
-		foreach ( [ 'email', 'phone' ] as $field ) {
-			$getter = 'get_billing_' . $field;
-			if ( (string) ( $data[ 'billing_' . $field ] ?? '' ) !== (string) $order->{$getter}() ) {
-				return false;
-			}
-		}
-		$selected = array_values( array_filter( (array) ( $data['shipping_method'] ?? [] ) ) );
-		$saved = [];
-		foreach ( $order->get_shipping_methods() as $rate ) {
-			$id = $rate->get_method_id();
-			$instance = $rate->get_instance_id();
-			$saved[] = $instance ? $id . ':' . $instance : $id;
-		}
-		return $selected === $saved;
 	}
 
 	/**
@@ -770,46 +782,13 @@ class Checkout_Mutation {
 	public static function update_order_meta( $order_id, $meta_data, $input, $context, $info ) {
 		$order = \WC_Order_Factory::get_order( $order_id );
 		if ( ! is_object( $order ) ) {
-			throw new \Exception( __( 'Failed to retrieve order.', 'wp-graphql-woocommerce' ) );
+			throw new \Exception( __( 'Failed to retrieve order.', 'graphql-for-ecommerce' ) );
 		}
 
 		if ( $meta_data ) {
-			// Checkout metadata is browser input. In particular, an underscore
-			// prefix does not make Stripe/order internals safe to write. Keep only
-			// non-authoritative presentation, consent and attribution keys used by
-			// the headless checkout. Payment reference/status/total are server-owned.
-			$allowed_keys = [
-				'order_via', '_consent_terms_accepted', '_consent_terms_timestamp',
-				'_consent_marketing', '_billing_nif', '_analytics_event_id',
-				'_ga_client_id', '_express_checkout', '_delivery_mode',
-				'_pickup_location_name', '_pickup_location_address',
-				'_stripe_payment_method_type',
-			];
-			foreach ( [
-				'source_type', 'origin', 'referrer', 'utm_source', 'utm_medium',
-				'utm_campaign', 'utm_content', 'utm_term', 'utm_id',
-				'utm_source_platform', 'utm_creative_format', 'marketing_tactic',
-				'session_entry', 'session_start_time', 'session_pages',
-				'user_agent', 'device_type',
-			] as $suffix ) {
-				$allowed_keys[] = '_wc_order_attribution_' . $suffix;
-			}
-			$allowed_meta = [];
 			foreach ( $meta_data as $meta ) {
-				$key = $meta['key'] ?? '';
-				$value = $meta['value'] ?? null;
-				if ( ! is_string( $key ) || ! in_array( $key, $allowed_keys, true )
-					|| ! is_scalar( $value ) || strlen( (string) $value ) > 500 ) {
-					continue;
-				}
-				if ( '_stripe_payment_method_type' === $key
-					&& ! in_array( $value, [ 'card', 'link', 'klarna', 'multibanco', 'mb_way', 'boleto', 'oxxo' ], true ) ) {
-					continue;
-				}
-				$order->update_meta_data( $key, sanitize_text_field( (string) $value ) );
-				$allowed_meta[] = [ 'key' => $key, 'value' => (string) $value ];
+				$order->update_meta_data( $meta['key'], $meta['value'] );
 			}
-			$meta_data = $allowed_meta;
 		}
 
 		/**

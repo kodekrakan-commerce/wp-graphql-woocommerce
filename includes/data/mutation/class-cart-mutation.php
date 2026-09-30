@@ -48,11 +48,11 @@ class Cart_Mutation {
 	 */
 	public static function prepare_cart_item( $input, $context, $info ) {
 		if ( empty( $input['productId'] ) ) {
-			throw new UserError( __( 'No product ID provided', 'wp-graphql-woocommerce' ) );
+			throw new UserError( __( 'No product ID provided', 'graphql-for-ecommerce' ) );
 		}
 
 		if ( ! \wc_get_product( $input['productId'] ) ) {
-			throw new UserError( __( 'No product found matching the ID provided', 'wp-graphql-woocommerce' ) );
+			throw new UserError( __( 'No product found matching the ID provided', 'graphql-for-ecommerce' ) );
 		}
 
 		$cart_item_args   = [ $input['productId'] ];
@@ -84,7 +84,7 @@ class Cart_Mutation {
 			throw new UserError(
 				sprintf(
 					/* translators: %s: product ID */
-					__( 'No product found matching the ID provided: %s', 'wp-graphql-woocommerce' ),
+					__( 'No product found matching the ID provided: %s', 'graphql-for-ecommerce' ),
 					$product_id
 				)
 			);
@@ -101,7 +101,7 @@ class Cart_Mutation {
 				throw new UserError(
 					sprintf(
 						/* translators: %1$s: attribute name, %2$s: product name */
-						__( '%1$s is not a valid attribute of the product: %2$s.', 'wp-graphql-woocommerce' ),
+						__( '%1$s is not a valid attribute of the product: %2$s.', 'graphql-for-ecommerce' ),
 						$attribute_name,
 						$product->get_name()
 					)
@@ -143,7 +143,7 @@ class Cart_Mutation {
 				$item = \WC()->cart->get_cart_item( $key );
 				if ( empty( $item ) ) {
 					/* translators: Cart item not found message */
-					throw new UserError( sprintf( __( 'No cart item found with the key: %s', 'wp-graphql-woocommerce' ), $key ) );
+					throw new UserError( sprintf( __( 'No cart item found with the key: %s', 'graphql-for-ecommerce' ), $key ) );
 				}
 				$items[] = $item;
 			}
@@ -185,20 +185,22 @@ class Cart_Mutation {
 		$the_coupon = new \WC_Coupon( $code );
 
 		// Prevent adding coupons by post ID.
-		if ( strtoupper( $the_coupon->get_code() ) !== strtoupper( $code ) ) {
-			$reason = __( 'No coupon found with the code provided', 'wp-graphql-woocommerce' );
+		if ( is_numeric( $code ) && strtoupper( $the_coupon->get_code() ) !== strtoupper( $code ) ) {
+			$reason = __( 'No coupon found with the code provided', 'graphql-for-ecommerce' );
 			return false;
 		}
 
 		// Check it can be used with cart.
-		if ( ! $the_coupon->is_valid() ) {
-			$reason = $the_coupon->get_error_message();
+		$discounts = new \WC_Discounts( \WC()->cart );
+		$valid     = $discounts->is_coupon_valid( $the_coupon );
+		if ( is_wp_error( $valid ) ) {
+			$reason = $valid->get_error_message();
 			return false;
 		}
 
 		// Check if applied.
 		if ( \WC()->cart->has_discount( $code ) ) {
-			$reason = __( 'This coupon has already been applied to the cart', 'wp-graphql-woocommerce' );
+			$reason = __( 'This coupon has already been applied to the cart', 'graphql-for-ecommerce' );
 			return false;
 		}
 
@@ -223,7 +225,7 @@ class Cart_Mutation {
 		if ( ! isset( $available_packages[ $index ] ) ) {
 			$reason = sprintf(
 				/* translators: %d: Package index */
-				__( 'No shipping packages available for corresponding index %d', 'wp-graphql-woocommerce' ),
+				__( 'No shipping packages available for corresponding index %d', 'graphql-for-ecommerce' ),
 				$index
 			);
 
@@ -247,7 +249,7 @@ class Cart_Mutation {
 
 		$reason = sprintf(
 			/* translators: %1$s: shipping method ID, %2$s: package contents */
-			__( '"%1$s" is not an available shipping method for shipping package "%2$s"', 'wp-graphql-woocommerce' ),
+			__( '"%1$s" is not an available shipping method for shipping package "%2$s"', 'graphql-for-ecommerce' ),
 			$shipping_method,
 			implode( ', ', $product_names )
 		);

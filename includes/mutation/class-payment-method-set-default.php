@@ -42,7 +42,9 @@ class Payment_Method_Set_Default {
 		return [
 			'tokenId' => [
 				'type'        => [ 'non_null' => 'Integer' ],
-				'description' => __( 'Token ID of the payment token being deleted.', 'wp-graphql-woocommerce' ),
+				'description' => static function () {
+					return __( 'Token ID of the payment token being deleted.', 'graphql-for-ecommerce' );
+				},
 			],
 		];
 	}
@@ -56,14 +58,18 @@ class Payment_Method_Set_Default {
 		return [
 			'status' => [
 				'type'        => 'String',
-				'description' => __( 'Status of the request', 'wp-graphql-woocommerce' ),
+				'description' => static function () {
+					return __( 'Status of the request', 'graphql-for-ecommerce' );
+				},
 				'resolve'     => static function ( $payload ) {
 					return ! empty( $payload['status'] ) ? $payload['status'] : 'FAILED';
 				},
 			],
 			'token'  => [
-				'type'        => 'PaymentToken',
-				'description' => __( 'Preferred payment method token', 'wp-graphql-woocommerce' ),
+				'type'        => 'PaymentTokenInterface',
+				'description' => static function () {
+					return __( 'Preferred payment method token', 'graphql-for-ecommerce' );
+				},
 				'resolve'     => static function ( $payload ) {
 					return ! empty( $payload['token'] ) ? $payload['token'] : null;
 				},
@@ -80,18 +86,18 @@ class Payment_Method_Set_Default {
 		return static function ( $input ) {
 			global $wp;
 			if ( ! is_user_logged_in() ) {
-				throw new UserError( __( 'Must be authenticated to set a default payment method', 'wp-graphql-woocommerce' ) );
+				throw new UserError( __( 'Must be authenticated to set a default payment method', 'graphql-for-ecommerce' ) );
 			}
 
 			$token_id = $input['tokenId'];
 			$token    = WC_Payment_Tokens::get( $token_id );
 
 			if ( is_null( $token ) || get_current_user_id() !== $token->get_user_id() ) {
-				throw new UserError( __( 'Invalid payment method.', 'wp-graphql-woocommerce' ) );
+				throw new UserError( __( 'Invalid payment method.', 'graphql-for-ecommerce' ) );
 			}
 
 			WC_Payment_Tokens::set_users_default( $token->get_user_id(), intval( $token_id ) );
-			wc_add_notice( __( 'This payment method was successfully set as your default.', 'wp-graphql-woocommerce' ) );
+			wc_add_notice( __( 'This payment method was successfully set as your default.', 'graphql-for-ecommerce' ) );
 
 			return [
 				'status' => 'SUCCESS',

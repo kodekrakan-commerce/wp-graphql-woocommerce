@@ -1,20 +1,21 @@
 <?php
 /**
- * Plugin Name: WPGraphQL for WooCommerce (WooGraphQL)
+ * Plugin Name: GraphQL for eCommerce
  * Plugin URI: https://github.com/wp-graphql/wp-graphql-woocommerce
- * Description: Adds Woocommerce functionality to WPGraphQL schema.
- * Version: 0.21.2.2
+ * Description: Adds WooCommerce functionality to WPGraphQL schema.
+ * Version: 1.0.3
  * Author: kidunot89
  * Author URI: https://axistaylor.com
- * Text Domain: wp-graphql-woocommerce
+ * Text Domain: graphql-for-ecommerce
  * Domain Path: /languages
  * License: GPL-3
  * License URI: https://www.gnu.org/licenses/gpl-3.0.html
- * Requires at least: 6.1
- * Requires PHP: 7.3
- * WC requires at least: 8.9.0
- * WC tested up to: 9.3.3
- * WPGraphQL requires at least: 1.27.0+
+ * Requires at least: 6.3
+ * Requires PHP: 8.1
+ * Requires Plugins: woocommerce
+ * WC requires at least: 9.0.0
+ * WC tested up to: 10.4.3
+ * WPGraphQL requires at least: 2.0.0
  * WPGraphQL-JWT-Authentication requires at least: 0.7.0+
  * WPGraphQL-Headless-Login requires at least: 0.1.4+
  *
@@ -29,6 +30,15 @@ namespace WPGraphQL\WooCommerce;
 defined( 'ABSPATH' ) || exit;
 
 /**
+ * If the codeception remote coverage file exists, require it.
+ *
+ * This file should only exist locally or when CI bootstraps the environment for testing
+ */
+if ( file_exists( __DIR__ . '/c3.php' ) ) {
+	require_once __DIR__ . '/c3.php';
+}
+
+/**
  * Setups WPGraphQL for WooCommerce constants
  *
  * @return void
@@ -36,7 +46,7 @@ defined( 'ABSPATH' ) || exit;
 function constants() {
 	// Plugin version.
 	if ( ! defined( 'WPGRAPHQL_WOOCOMMERCE_VERSION' ) ) {
-		define( 'WPGRAPHQL_WOOCOMMERCE_VERSION', '0.21.2.2' );
+		define( 'WPGRAPHQL_WOOCOMMERCE_VERSION', '1.0.3' );
 	}
 	// Plugin Folder Path.
 	if ( ! defined( 'WPGRAPHQL_WOOCOMMERCE_PLUGIN_DIR' ) ) {
@@ -137,7 +147,7 @@ function init() {
 						<?php
 							printf(
 								/* translators: dependency not ready error message */
-								esc_html__( '%1$s must be active for "WPGraphQL for WooCommerce (WooGraphQL)" to work', 'wp-graphql-woocommerce' ),
+								esc_html__( '%1$s must be active for "GraphQL for eCommerce" to work', 'graphql-for-ecommerce' ),
 								esc_html( $dep )
 							);
 						?>
@@ -148,6 +158,7 @@ function init() {
 		);
 	}
 }
+
 add_action( 'graphql_init', 'WPGraphQL\WooCommerce\init' );
 
 /**
@@ -161,7 +172,31 @@ function init_auth_router() {
 		WP_GraphQL_WooCommerce::load_auth_router();
 	}
 }
+
 add_action( 'plugins_loaded', 'WPGraphQL\WooCommerce\init_auth_router' );
+
+/**
+ * Prevent WooCommerce from loading cart during 'init' for GraphQL requests.
+ *
+ * WooCommerce calls wc_load_cart() during the 'init' action for frontend requests.
+ * This happens before JWT authentication can set the current user, causing the
+ * session to be initialized with the wrong user context.
+ *
+ * By making WooCommerce think GraphQL requests are REST API requests, we prevent
+ * the early cart loading. The cart is then loaded later during 'graphql_before_execute'
+ * after JWT authentication has had a chance to run.
+ *
+ * @return void
+ */
+function prevent_early_wc_cart_loading() {
+	if ( ! function_exists( 'is_graphql_http_request' ) || ! is_graphql_http_request() ) {
+		return;
+	}
+
+	add_filter( 'woocommerce_is_rest_api_request', '__return_true' );
+}
+
+add_action( 'plugins_loaded', 'WPGraphQL\WooCommerce\prevent_early_wc_cart_loading', 0 );
 
 // Load constants.
 constants();
@@ -169,16 +204,29 @@ constants();
 // Load access functions.
 require_once get_plugin_directory() . 'access-functions.php';
 
-// Confirm WC HPOS compatibility.
+// Confirm WC HPOS and Cart & Checkout Blocks compatibility.
+// Only declare when installed as a top-level plugin (not nested in another plugin's vendor directory).
 add_action(
 	'before_woocommerce_init',
 	static function () {
-		if ( get_plugin_directory() !== WP_PLUGIN_DIR . '/wp-graphql-woocommerce/' ) {
+		$is_top_level_plugin = dirname( __DIR__ ) === WP_PLUGIN_DIR;
+		if ( ! $is_top_level_plugin ) {
 			return;
 		}
 
 		if ( class_exists( \Automattic\WooCommerce\Utilities\FeaturesUtil::class ) ) {
 			\Automattic\WooCommerce\Utilities\FeaturesUtil::declare_compatibility( 'custom_order_tables', __FILE__, true );
+			\Automattic\WooCommerce\Utilities\FeaturesUtil::declare_compatibility( 'cart_checkout_blocks', __FILE__, true );
 		}
 	}
 );
+
+/**
+ * Disable deferred transactional emails during tests so WC emails send
+ * synchronously and can be captured by MockPHPMailer. This must run before
+ * WC_Emails is instantiated, which happens during plugins_loaded — too early
+ * for the wpunit bootstrap.php to hook in.
+ */
+if ( defined( 'GRAPHQL_TESTING' ) && GRAPHQL_TESTING ) {
+	add_filter( 'woocommerce_defer_transactional_emails', '__return_false' );
+}
