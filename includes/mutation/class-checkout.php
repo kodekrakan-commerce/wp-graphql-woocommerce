@@ -128,10 +128,13 @@ class Checkout {
 	 * @return callable
 	 */
 	public static function mutate_and_get_payload() {
-		return static function ( $input, AppContext $context, ResolveInfo $info ) {
+		$entry = static function ( $input, AppContext $context, ResolveInfo $info ) use ( &$entry ) {
 			// Create order.
 			$order = null;
+			$session = \WC()->session;
+			$handler = $session instanceof \WPGraphQL\WooCommerce\Utils\QL_Session_Handler && $session->is_graphql_session() ? $session : null;
 			try {
+				if ( $handler ) { $handler->begin_checkout( $entry, $input, $context, $info ); }
 				$args = Checkout_Mutation::prepare_checkout_args( $input, $context, $info );
 
 				/**
@@ -179,7 +182,10 @@ class Checkout {
 				}
 				// Throw error.
 				throw new UserError( $e->getMessage() );
+			} finally {
+				if ( $handler ) { $handler->end_checkout( $context, $info ); }
 			}//end try
 		};
+		return $entry;
 	}
 }

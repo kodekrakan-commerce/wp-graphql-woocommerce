@@ -14,6 +14,15 @@ namespace {
 	function __( $text, $domain = null ) { return integration_translate( $text ); }
 	function esc_html( $value ) { return $value; }
 	function integration_event( $event ) { HandlerContractBoundary::event( $event ); }
+	function integration_trusted_input( $input, $context, $info, $name ) {
+		$case=$GLOBALS['integration_current_case'];$db=$GLOBALS['integration_db'];
+		if ( 'Checkout' === $name ) { $input['account'] = [ 'username' => 'synthetic' ]; integration_event( 'trusted.checkout.input' ); }
+		if ( 'Login' === $name ) {
+			$input['provider'] = 'sitetoken'; integration_event( 'trusted.login.input' );
+			if ( 'detached-unavailable-dominates' === $case ) { $db->report_failed = true; $GLOBALS['integration_forbid_translation'] = true; $GLOBALS['integration_translations'] = 0; }
+		}
+		return $input;
+	}
 	final class WC_Customer {
 		public function __construct() { add_action( 'shutdown', [ $this, 'save' ], 10, 0 ); }
 		public function get_id() { return HandlerContractBoundary::$user; }
@@ -111,8 +120,9 @@ namespace {
 		'WPGraphQL\\Router' => getenv( 'WL_INTEGRATION_ADAPTER_SHA' ),
 		'WC_Customer' => $fixture_hash, 'WC_Cart' => $fixture_hash, 'WC_Cart_Session' => $fixture_hash,
 		QL_Session_Handler::class => getenv( 'WL_INTEGRATION_HANDLER_SHA' ),
+		\WPGraphQL\WooCommerce\Utils\Cart_Session_Operation::class => getenv( 'WL_INTEGRATION_OPERATION_SHA' ),
 	] );
-	define( 'WOOGRAPHQL_CART_SESSION_CALLBACK_COHORT', [] );
+	define( 'WOOGRAPHQL_CART_SESSION_CALLBACK_COHORT', [[ 'hook'=>'graphql_mutation_input','kind'=>'function','function'=>'integration_trusted_input','priority'=>10,'accepted_args'=>4,'stable_registry'=>true,'nonstreaming'=>true,'sha256'=>$fixture_hash ]] );
 	$handler = new QL_Session_Handler(); WC()->session = $handler;
 	register_shutdown_function( static function () use ( $ledger, $handler, $db, $id, $original_row, $original_markers ) {
 		do_action( 'shutdown' );
@@ -134,6 +144,8 @@ namespace {
 	$handler->set( 'cart', 'synthetic-pending-cart' );
 	if ( $marker_case && 'replacement' === $marker_parts[2] ) { $GLOBALS['wpdb'] = new HandlerContractDatabase(); }
 	if ( $marker_case && 'uncertain' === $marker_parts[2] ) { $db->report_failed = true; }
+	$GLOBALS['integration_current_case']=$case;$GLOBALS['integration_db']=$db;
+	if ( in_array( $case, [ 'later-filtered-input', 'detached-input-rejection', 'detached-unavailable-dominates' ], true ) ) { add_filter('graphql_mutation_input','integration_trusted_input',10,4); }
 	$status = 200;
 	try { do_action( 'do_graphql_request' ); }
 	catch ( \WPGraphQL\WooCommerce\Utils\Cart_Session_Error $error ) {
@@ -185,16 +197,6 @@ SDL
 	}
 	$schema->getType( 'Customer' )->getField( 'sessionToken' )->resolveFn = static fn() => $handler->build_customer_token();
 	foreach ( $schema->getTypeMap() as $type ) { if ( $type instanceof ObjectType && 0 !== strpos( $type->name, '__' ) ) { InstrumentSchema::instrument_resolvers( $type, $type->name ); } }
-	if ( in_array( $case, [ 'later-filtered-input', 'detached-input-rejection', 'detached-unavailable-dominates' ], true ) ) {
-		add_filter( 'graphql_mutation_input', static function ( $input, $context, $info, $name ) use ( $case, $db ) {
-			if ( 'Checkout' === $name ) { $input['account'] = [ 'username' => 'synthetic' ]; integration_event( 'trusted.checkout.input' ); }
-			if ( 'Login' === $name ) {
-				$input['provider'] = 'sitetoken'; integration_event( 'trusted.login.input' );
-				if ( 'detached-unavailable-dominates' === $case ) { $db->report_failed = true; $GLOBALS['integration_forbid_translation'] = true; $GLOBALS['integration_translations'] = 0; }
-			}
-			return $input;
-		}, 10, 4 );
-	}
 	if ( 'unavailable-dominates' === $case ) { $db->report_failed = true; $GLOBALS['integration_forbid_translation'] = true; $GLOBALS['integration_translations'] = 0; }
 	$query = $marker_case ? 'mutation { addToCart(input:{}) { success customer { sessionToken } } }' : match ( $case ) {
 		'ordinary-success', 'existing-token-cart-cookie' => 'mutation { addToCart(input:{}) { success customer { sessionToken } } }',

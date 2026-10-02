@@ -106,6 +106,8 @@ class QL_Session_Handler extends WC_Session_Handler {
 	private $owned_storage;
 	/** @var Cart_Session_Lifecycle|null */
 	private $owned_lifecycle;
+	/** Exactly one operation receiver owns request-local checkout provenance. */
+	private $owned_operation;
 	private $owned_finalized = false;
 	private $owned_discarded = false;
 	private $header_callback_registered = false;
@@ -269,7 +271,9 @@ class QL_Session_Handler extends WC_Session_Handler {
 		// WC initializes outside Router's exception boundary: install guards first,
 		// quarantine early failures, and report them during GraphQL execution.
 		add_action( 'do_graphql_request', [ $this, 'assert_session_ready' ], PHP_INT_MIN, 0 );
-		new Cart_Session_Operation( $this );
+		if ( null === $this->owned_operation ) {
+			$this->owned_operation = new Cart_Session_Operation( $this );
+		}
 		try {
 			if ( $this->graphql_mode && ( ! function_exists( 'WC' ) || ! is_object( \WC() ) || ( \WC()->session ?? null ) !== $this ) ) {
 				throw new Cart_Session_Error( Cart_Session_Error::UNAVAILABLE );
@@ -1013,6 +1017,55 @@ class QL_Session_Handler extends WC_Session_Handler {
 
 	public function get_owned_lifecycle(): ?Cart_Session_Lifecycle {
 		return $this->owned_lifecycle;
+	}
+
+	/** Pure recognition only; never reveal or replace the retained operation. */
+	public function is_cart_operation_callback( $hook, $callback, $priority, $arguments ): bool {
+		if ( null === $this->owned_operation || ! is_int( $priority ) || ! is_int( $arguments ) ) { return false; }
+		return ( 'graphql_pre_mutate_and_get_payload' === $hook && 6 === $arguments
+			&& ( ( PHP_INT_MIN === $priority && [ $this->owned_operation, 'before_mutation' ] === $callback )
+				|| ( PHP_INT_MAX === $priority && [ $this->owned_operation, 'capture_checkout_origin' ] === $callback ) ) )
+			|| ( 'graphql_mutation_response' === $hook && 0 === $priority && 6 === $arguments
+				&& [ $this->owned_operation, 'mutation_response' ] === $callback );
+	}
+
+	/** Fixed frozen-cohort check, never a caller-selected callback or source. */
+	public function assert_checkout_origin_boundary(): void {
+		try {
+			$this->assert_session_ready(); $this->assert_owned_scope();
+			if ( ( \WC()->session ?? null ) !== $this || ! $this->owned_lifecycle ) {
+				throw new Cart_Session_Error( Cart_Session_Error::UNAVAILABLE );
+			}
+			$this->owned_lifecycle->assert_checkout_origin_boundary();
+		} catch ( \Throwable $error ) {
+			$this->latch_owned_failure();
+			throw new Cart_Session_Error( Cart_Session_Error::UNAVAILABLE );
+		}
+	}
+
+	public function begin_checkout( $entry, $input, $context, $info ): void {
+		$this->assert_session_ready(); $this->assert_owned_scope();
+		if ( ! $this->owned_operation || ( \WC()->session ?? null ) !== $this ) {
+			$this->reject_cart_operation(); throw new Cart_Session_Transition_Error();
+		}
+		$this->owned_operation->enter_checkout( $entry, $input, $context, $info );
+	}
+
+	/** Dormant one-use consumption; the actual creation branch remains closed. */
+	public function hold_checkout_customer_creation( $data, $context, $info ): never {
+		$this->assert_session_ready(); $this->assert_owned_scope();
+		if ( ! $this->owned_operation || 0 !== $this->admitted_user_id || 0 !== (int) get_current_user_id()
+			|| ( \WC()->session ?? null ) !== $this || (string) $this->_customer_id !== $this->admitted_customer_id ) {
+			$this->reject_cart_operation(); throw new Cart_Session_Transition_Error();
+		}
+		$this->owned_operation->consume_checkout_creation_origin( $data, $context, $info );
+		$this->reject_cart_operation();
+		throw new Cart_Session_Transition_Error();
+	}
+
+	/** Always close on the original receiver; no SQL, signing or hook dispatch. */
+	public function end_checkout( $context, $info ): void {
+		if ( $this->owned_operation ) { $this->owned_operation->leave_checkout( $context, $info ); }
 	}
 
 	/** Terminal callbacks stay inert; a live failed storage operation is explicit. */

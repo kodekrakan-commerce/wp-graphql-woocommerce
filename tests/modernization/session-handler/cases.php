@@ -129,7 +129,7 @@ function contract_error_is( ?Throwable $error, string $code ): bool {
 	return $code === ( $formatted['extensions']['code'] ?? null );
 }
 
-function contract_field_hook( string $name ): void {
+function contract_field_hook( string $name ): array {
 	// Each child models one execution. Reuse its genuine operation/schema identity.
 	static $info = null;
 	if ( null === $info ) {
@@ -144,7 +144,9 @@ function contract_field_hook( string $name ): void {
 		$field = $parent->getField( $name );
 		$info = new \GraphQL\Type\Definition\ResolveInfo( $field, new ArrayObject( [ $field_node ] ), $parent, [ $name ], $schema, [], null, $operation, [], [ $name ] );
 	}
-	do_action( 'graphql_before_resolve_field', null, [], new stdClass(), $info, static fn() => null, $info->parentType->name, $info->fieldName, $info->fieldDefinition );
+	$context = new stdClass();
+	do_action( 'graphql_before_resolve_field', null, [], $context, $info, static fn() => null, $info->parentType->name, $info->fieldName, $info->fieldDefinition );
+	return [ $context, $info ];
 }
 
 /** Genuine validated mixed mutation and ResolveInfo; no resolver/provider callback runs. */
@@ -332,8 +334,9 @@ function contract_run_case( array $case ): array {
 	if ( in_array( $case['expect'], [ 'checkout-hold', 'checkout-policy-once' ], true ) ) {
 		HandlerContractBoundary::$woocommerce = (object) [ 'session' => $handler ];
 		contract_assert( false === \WPGraphQL\WooCommerce\Data\Mutation\Checkout_Mutation::is_registration_required(), 'checkout policy must initially permit guest preflight' );
+		$checkout_boundary = [ new stdClass(), null ];
 		if ( HandlerContractBoundary::$graphql ) {
-			$error = contract_try( static fn() => contract_field_hook( 'checkout' ) );
+			$error = contract_try( static function () use ( &$checkout_boundary ) { $checkout_boundary = contract_field_hook( 'checkout' ); } );
 			contract_assert( null === $error, 'original ordinary guest checkout operation must pass actual coordinator preflight' );
 		}
 		$rows_before = HandlerContractBoundary::$rows;
@@ -347,7 +350,9 @@ function contract_run_case( array $case ): array {
 			add_filter( 'woocommerce_checkout_registration_required', static function ( $unused ) use ( &$policy_calls ) { return 1 !== ++$policy_calls; } );
 		}
 		$method = new ReflectionMethod( \WPGraphQL\WooCommerce\Data\Mutation\Checkout_Mutation::class, 'process_customer' );
-		$error = contract_try( static fn() => $method->invoke( null, $data ) );
+		// This component fixture qualifies preflight/final-policy denial only.
+		// It does not capture the terminal observer or mint Checkout origin.
+		$error = contract_try( static fn() => $method->invoke( null, $data, $checkout_boundary[0], $checkout_boundary[1] ) );
 		if ( 'checkout-policy-once' === $case['expect'] ) {
 			contract_assert( null === $error && 1 === $policy_calls, 'actual checkout customer step must use one creation-policy decision despite a filter changing its next result' );
 		} else {

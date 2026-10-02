@@ -34,6 +34,13 @@ final class Cart_Session_Operation {
 	private $failed = false;
 	private $completed_identity;
 	private $starting_identity;
+	private $checkout_state = 'absent';
+	private $checkout_invocation;
+	private $checkout_origin_attempted = false;
+	private $checkout_field_info;
+	private $checkout_field_context;
+	private $checkout_seen_keys = [];
+	private $checkout_eligible_key;
 
 	public function __construct( $handler ) {
 		$this->handler = $handler;
@@ -41,12 +48,16 @@ final class Cart_Session_Operation {
 		add_action( 'graphql_execute_batch_queries', [ $this, 'reject_batch' ], PHP_INT_MIN, 1 );
 		add_action( 'graphql_mutation_response', [ $this, 'mutation_response' ], 0, 6 );
 		add_filter( 'graphql_pre_mutate_and_get_payload', [ $this, 'before_mutation' ], PHP_INT_MIN, 6 );
+		add_filter( 'graphql_pre_mutate_and_get_payload', [ $this, 'capture_checkout_origin' ], PHP_INT_MAX, 6 );
 		// Run last so another pre-resolution filter cannot revive the legacy token.
 		add_filter( 'graphql_pre_resolve_field', [ $this, 'pre_resolve' ], PHP_INT_MAX, 9 );
 	}
 
 	private function reject() {
 		$this->failed = true;
+		$this->checkout_state = 'failed';
+		$this->checkout_invocation = null;
+		$this->checkout_field_info = null; $this->checkout_field_context = null;
 		$this->handler->reject_cart_operation();
 		throw new Cart_Session_Transition_Error();
 	}
@@ -92,6 +103,11 @@ final class Cart_Session_Operation {
 		} else {
 			$this->handler->assert_session_ready();
 		}
+		if ( 'checkout' === $info->fieldName && $info->parentType === $info->schema->getMutationType() && 1 === count( $info->path ) ) {
+			if ( null !== $this->checkout_invocation ) { $this->reject(); }
+			$this->checkout_field_info = $info;
+			$this->checkout_field_context = $context;
+		}
 	}
 
 	/** Inspect final filtered input before any pre-mutation filter or mutation callback. */
@@ -132,6 +148,91 @@ final class Cart_Session_Operation {
 		}
 	}
 
+	/** Copy only scalar/array input: no object, reference or caller policy authority. */
+	private function checkout_value( $value, $depth = 0 ) {
+		if ( $depth > 32 || ( ! is_array( $value ) && ! is_scalar( $value ) && null !== $value ) ) { $this->reject(); }
+		if ( ! is_array( $value ) ) { return $value; }
+		$result = [];
+		foreach ( $value as $key => $child ) { $result[ $key ] = $this->checkout_value( $child, $depth + 1 ); }
+		return $result;
+	}
+
+	/** The pinned default factory supplies the sole static self-reference. */
+	private function assert_checkout_entry( $entry ): void {
+		if ( ! $entry instanceof \Closure ) { $this->reject(); }
+		$reflection = new \ReflectionFunction( $entry );
+		$factory = new \ReflectionMethod( \WPGraphQL\WooCommerce\Mutation\Checkout::class, 'mutate_and_get_payload' );
+		$variables = $reflection->getStaticVariables();
+		if ( ! $reflection->isStatic() || null !== $reflection->getClosureThis()
+			|| ( $reflection->getClosureScopeClass() ? $reflection->getClosureScopeClass()->getName() : null ) !== \WPGraphQL\WooCommerce\Mutation\Checkout::class
+			|| $reflection->getFileName() !== $factory->getFileName()
+			|| $reflection->getStartLine() !== $factory->getStartLine() + 1 || $reflection->getEndLine() !== $factory->getEndLine() - 2
+			|| [ 'entry' ] !== array_keys( $variables ) || $variables['entry'] !== $entry ) { $this->reject(); }
+	}
+
+	/** Compare-only terminal observation, never return a permit or invoke a callback. */
+	public function capture_checkout_origin( $pre, $name, $callback, $input, $context, $info ) {
+		if ( ! $this->handler->is_graphql_session() || 'Checkout' !== $name ) { return $pre; }
+		$this->checkout_boundary();
+		if ( $this->failed || null !== $pre || ! $info instanceof ResolveInfo || ! is_array( $input )
+			|| $info !== $this->checkout_field_info || $context !== $this->checkout_field_context
+			|| $info->operation !== $this->operation || $info->schema !== $this->schema
+			|| $info->parentType !== $info->schema->getMutationType() || 'checkout' !== $info->fieldName || 1 !== count( $info->path ) ) { $this->reject(); }
+		$this->assert_checkout_entry( $callback );
+		// Eligibility was derived once from the initial executable operation.
+		$eligible = $this->checkout_eligible_key === $info->path[0];
+		if ( null !== $this->checkout_invocation || isset( $this->checkout_seen_keys[ $info->path[0] ] ) || ( $eligible && $this->checkout_origin_attempted )
+			|| in_array( $this->checkout_state, [ 'entered', 'creation_consumed', 'failed' ], true ) ) { $this->reject(); }
+		if ( $eligible ) { $this->checkout_origin_attempted = true; }
+		$this->checkout_seen_keys[ $info->path[0] ] = true;
+		$this->checkout_invocation = [ 'callback'=>$callback, 'input'=>$this->checkout_value( $input ), 'context'=>$context,
+			'info'=>$info, 'operation'=>$info->operation, 'schema'=>$info->schema, 'key'=>$info->path[0] ];
+		$this->checkout_state = 'captured';
+		return $pre;
+	}
+
+	private function checkout_binding( $context, $info ): bool {
+		$record = $this->checkout_invocation;
+		return is_array( $record ) && $info instanceof ResolveInfo && $record['context'] === $context && $record['info'] === $info
+			&& $record['operation'] === $info->operation && $record['schema'] === $info->schema
+			&& $record['key'] === ( $info->path[0] ?? null ) && 1 === count( $info->path ) && 'checkout' === $info->fieldName;
+	}
+
+	private function checkout_boundary(): void {
+		try { $this->handler->assert_checkout_origin_boundary(); }
+		catch ( \Throwable $error ) {
+			$this->failed = true; $this->checkout_state = 'failed'; $this->checkout_invocation = null;
+			$this->checkout_field_info = null; $this->checkout_field_context = null;
+			throw $error;
+		}
+	}
+
+	public function enter_checkout( $entry, $input, $context, $info ): void {
+		$this->checkout_boundary();
+		if ( $this->failed || 'captured' !== $this->checkout_state || ! $this->checkout_binding( $context, $info )
+			|| $entry !== $this->checkout_invocation['callback'] || ! is_array( $input ) || $this->checkout_value( $input ) !== $this->checkout_invocation['input'] ) { $this->reject(); }
+		$this->assert_checkout_entry( $entry );
+		$this->checkout_state = 'entered';
+	}
+
+	public function consume_checkout_creation_origin( $data, $context, $info ): void {
+		$this->checkout_boundary();
+		if ( $this->failed || 'entered' !== $this->checkout_state || ! $this->checkout_binding( $context, $info )
+			|| $this->checkout_eligible_key !== $this->checkout_invocation['key'] || ! $this->checkout_origin_attempted || ! is_array( $data ) ) { $this->reject(); }
+		$this->checkout_state = 'creation_consumed';
+		$this->checkout_value( $data ); // Validate without retaining posted passwords.
+	}
+
+	/** Exception-safe wipe: no callbacks, errors, SQL or signing in finally. */
+	public function leave_checkout( $context, $info ): void {
+		if ( null === $this->checkout_invocation ) { $this->checkout_field_info = null; $this->checkout_field_context = null; return; }
+		if ( ! $this->checkout_binding( $context, $info ) || ! in_array( $this->checkout_state, [ 'captured', 'entered', 'creation_consumed' ], true ) ) {
+			$this->failed = true; $this->checkout_state = 'failed';
+		} else { $this->checkout_state = 'closed'; }
+		$this->checkout_invocation = null;
+		$this->checkout_field_info = null; $this->checkout_field_context = null;
+	}
+
 	private function inspect_operation( ResolveInfo $info ) {
 		$this->operation = $info->operation;
 		$this->schema = $info->schema;
@@ -140,6 +241,10 @@ final class Cart_Session_Operation {
 			$this->reject();
 		}
 		$roots = $this->collect( $info->operation->selectionSet, $type, $info );
+		$checkout_roots = [];
+		foreach ( $roots as $key => $nodes ) { if ( '__typename' !== $nodes[0]->name->value ) { $checkout_roots[ $key ] = $nodes; } }
+		if ( $type === $info->schema->getMutationType() && 0 === (int) get_current_user_id() && 1 === count( $checkout_roots )
+			&& 'checkout' === current( $checkout_roots )[0]->name->value ) { $this->checkout_eligible_key = key( $checkout_roots ); }
 		$auth = [];
 		foreach ( $roots as $key => $nodes ) {
 			$name = $nodes[0]->name->value;

@@ -259,7 +259,7 @@ class Checkout_Mutation {
 	 *
 	 * @return void
 	 */
-	protected static function process_customer( $data ) {
+	protected static function process_customer( $data, $context, $info ) {
 		// phpcs:ignore WordPress.NamingConventions.PrefixAllGlobals.NonPrefixedHooknameFound
 		$customer_id = apply_filters( 'woocommerce_checkout_customer_id', get_current_user_id() );
 
@@ -277,7 +277,7 @@ class Checkout_Mutation {
 			// Hold the actual creation branch before effects, using its single
 			// policy decision even when extension filters change after preflight.
 			if ( $is_graphql_session ) {
-				throw new \WPGraphQL\WooCommerce\Utils\Cart_Session_Transition_Error();
+				$session->hold_checkout_customer_creation( $data, $context, $info );
 			}
 			$username    = ! empty( $data['account_username'] ) ? $data['account_username'] : '';
 			$password    = ! empty( $data['account_password'] ) ? $data['account_password'] : '';
@@ -652,7 +652,7 @@ class Checkout_Mutation {
 		// Validate posted data and cart items before proceeding.
 		self::validate_checkout( $data );
 
-		self::process_customer( $data );
+		self::process_customer( $data, $context, $info );
 		$order_id = WC()->checkout->create_order( $data );
 		$order    = wc_get_order( $order_id );
 

@@ -13,6 +13,7 @@ namespace WPGraphQL\WooCommerce\Utils {
 		public $broken = false;
 		public $rejected = false;
 		public function has_session_rejection() { return $this->rejected; }
+		public function is_cart_operation_callback($hook,$callback,$priority,$args) { return false; }
 		public function reject_cart_operation() { $this->assert_response_available(); $this->rejected = true; }
 		public function has_owned_scope() { return $this->owned; }
 		public function assert_owned_scope() { if ( ! $this->owned || $this->broken ) { throw new \WLCommerce\Database\Owned_Scope_Error(); } }

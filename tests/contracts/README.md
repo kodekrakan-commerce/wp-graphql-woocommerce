@@ -20,6 +20,7 @@ php tests/contracts/cart-session-http-boundary-contract.php
 php tests/contracts/cart-session-owned-handler-contract.php
 php tests/contracts/cart-session-lifecycle-contract.php
 php tests/contracts/cart-session-lifecycle-integration-contract.php
+php tests/contracts/cart-session-checkout-origin-contract.php
 ```
 
 The HTTP and lifecycle runners start native PHP subprocesses and a temporary
@@ -38,6 +39,17 @@ affected-behavior recheck.
 | Owned handler | Actual handler, storage, JWT and WooCommerce session parent; preflight, guest creation/retirement marker denial before hydration, identity admission, dirty writes, auth detach and terminal fencing | Lifecycle, WordPress hooks, authentication, SQL and cache |
 | Lifecycle | Actual lifecycle and HTTP boundary with genuine `WP_Hook`, `plugin.php` and GraphQL executor; captured writers, callback/source cohorts and terminal outcomes | Handler/storage, cart/customer, router, authentication and SQL |
 | Composed integration | Actual handler, operation coordinator, lifecycle, storage and HTTP boundary; genuine hook dispatcher, GraphQL instrumentation/mutation types/executor and AppContext; rejected mixed operations and later filtered input cannot publish partial data or cart credentials; marker denial constructs customer/cart before the request guard and exercises shutdown persistence | Customer/cart, router, authentication, SQL and cache; AppContext is constructed without site bootstrap |
+| Checkout origin | Actual retained self-bound Checkout closure, preparation and final customer branch with the handler, operation and lifecycle; genuine WP hooks, GraphQL instrumentation, mutation type and executor; exact invocation binding, immutable single-root eligibility, one-use consumption and finally cleanup | Controlled before-checkout caller reflects into the actual protected customer branch; natural validation, session update and order processing are omitted; customer/cart, Router, authentication, SQL and cache remain substitutes |
+
+The dormant checkout-origin runner has 35 source contracts. It checks source,
+receiver, hook order and argument count at capture, entry and final consumption,
+including input/context/Info/path drift, replacement closures, recapture, reentry,
+late policy and registry changes. Distinct ordinary noncreating roots remain valid;
+they cannot acquire single-root creation eligibility. Both the early account hold
+and final native creation-branch hold remain unconditional. No creation reservation,
+native account/authentication, cookie adoption or checkout/order path is activated.
+The older 56 operation cases retain a synthetic lowercase checkout callback and
+qualify preflight holds only; the new runner supplies canonical Checkout binding.
 
 The composed positive control completes one checked write, seal and release.
 Rejection controls prevent the captured customer/cart/session flush, retain the

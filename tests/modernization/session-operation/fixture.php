@@ -23,7 +23,12 @@ final class OperationRecordingHandler {
 	public function is_auth_detached() { return $this->detached; }
 }
 
-/** Use the actual WPGraphQL callback/payload hook lifecycle without its WP type registry. */
+/** Use the actual WPGraphQL callback/payload hook lifecycle without its WP type registry.
+ * Checkout deliberately retains its synthetic lowercase mutation name and callback:
+ * these cases qualify operation preflight/account holds, not the canonical Checkout
+ * terminal origin binding. cart-session-checkout-origin-contract.php pairs the
+ * genuine canonical mutation with the actual retained self-bound Checkout closure.
+ */
 final class OperationMutation extends \WPGraphQL\Type\WPMutationType {
 	public function __construct( $name, $callback ) { $this->mutation_name = in_array( $name, [ 'login', 'logout' ], true ) ? ucfirst( $name ) : $name; $this->config = [ 'mutateAndGetPayload' => $callback ]; }
 	public function resolver() { return $this->get_resolver(); }

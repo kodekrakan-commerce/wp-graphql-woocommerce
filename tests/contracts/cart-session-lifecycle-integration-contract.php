@@ -7,9 +7,9 @@
  * WL_MU_PLUGINS_SOURCE. Native subprocesses permit real emit/exit/shutdown.
  */
 error_reporting( E_ALL ); ini_set( 'display_errors', '0' ); ini_set( 'log_errors', '0' );
-const INTEGRATION_FIXTURE_SHA = '5c7347295a8b76dedd1d5ef3c48b48ac3f79cebefa64b07ff32c2e999b9c0169';
+const INTEGRATION_FIXTURE_SHA = 'c2a1c37933096e0c0f4de9bf95e50f7265770da8676eb8b7aba5c13852065418';
 const INTEGRATION_ADAPTER_SHA = '9566dc98d41d8894d316340a85f56b752f3d9b1fafd3e604cbcdca0b13d39617';
-const INTEGRATION_HANDLER_SHA = '20f9551ef34bf3b9ff3ee91b89f54fa71c8282ac1c62d714348c6e39ef5a9447';
+const INTEGRATION_HANDLER_SHA = '38d929e5c2aaac50e753f8d5f7ff097c70816d8a09660cbe0d77118c58308fc3';
 $owner = dirname( __DIR__, 2 ); $endpoint = __DIR__ . '/cart-session-lifecycle-integration-fixture.php';
 $source_files = [ 'handler' => $owner . '/includes/utils/class-ql-session-handler.php', 'fixture' => $endpoint, 'adapter' => __DIR__ . '/cart-session-owned-handler-fixtures.php' ];
 foreach ( [ 'handler' => INTEGRATION_HANDLER_SHA, 'fixture' => INTEGRATION_FIXTURE_SHA, 'adapter' => INTEGRATION_ADAPTER_SHA ] as $name => $hash ) {
@@ -24,6 +24,7 @@ $source_files['WP_Hook'] = $wp . '/wp-includes/class-wp-hook.php'; $source_files
 $source_files['InstrumentSchema'] = $gql . '/src/Utils/InstrumentSchema.php'; $source_files['WPMutationType'] = $gql . '/src/Type/WPMutationType.php'; $source_files['AppContext'] = $gql . '/src/AppContext.php';
 $source_before = array_map( fn( $file ) => hash_file( 'sha256', $file ), $source_files );
 putenv( 'WL_INTEGRATION_FIXTURE_SHA=' . INTEGRATION_FIXTURE_SHA ); putenv( 'WL_INTEGRATION_ADAPTER_SHA=' . INTEGRATION_ADAPTER_SHA ); putenv( 'WL_INTEGRATION_HANDLER_SHA=' . INTEGRATION_HANDLER_SHA );
+putenv('WL_INTEGRATION_OPERATION_SHA=e289f01f82a4865e488ca30e9d230fb1791727c3248002e4d712b8d9a9d1e2fa');
 $total = 0; $failures = 0;
 function integration_expect( $condition ) { if ( ! $condition ) { throw new RuntimeException( 'Sanitized composed integration assertion failed.' ); } }
 function integration_case( $name, callable $action ) {

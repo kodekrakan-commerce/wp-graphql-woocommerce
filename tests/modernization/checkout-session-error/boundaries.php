@@ -27,6 +27,9 @@ namespace WPGraphQL\WooCommerce\Data\Mutation {
 	}
 }
 namespace {
+	// Controlled non-GraphQL session: these cases qualify error/purge
+	// classification, not the separately tested Checkout origin pipeline.
+	function WC() { return (object) [ 'session' => null ]; }
 	function __( $text, $domain = '' ) { return $text; }
 	function do_action( $name, ...$args ) {
 		$GLOBALS['checkout_contract']['hooks'][] = $name;

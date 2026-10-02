@@ -9,12 +9,19 @@ namespace WPGraphQL\WooCommerce\Utils;
 final class Cart_Session_Lifecycle {
 
 	private const SOURCE_COHORT = [
-		'WPGraphQL\\WooCommerce\\Utils\\QL_Session_Handler' => '20f9551ef34bf3b9ff3ee91b89f54fa71c8282ac1c62d714348c6e39ef5a9447',
+		'WPGraphQL\\WooCommerce\\Utils\\QL_Session_Handler' => '38d929e5c2aaac50e753f8d5f7ff097c70816d8a09660cbe0d77118c58308fc3',
 		'WP_Hook' => 'b839c0e5672246bca8db1ab781ec8835f7732f253c375a237cbf6ec536e8d12e',
 		'WPGraphQL\\Router' => '4c85426fdc7223c69358ed70e68ba45e4c5f632a4234f860ebba41d68ec32ea7',
 		'WC_Customer' => '14ca0da46d63445e72053cba79fad368393490e7bf416e53936eeb17c579a452',
 		'WC_Cart' => 'fd1ca75de053a52c7032822ee865da2ae4f3d299afd5f50ac362d888b2703824',
 		'WC_Cart_Session' => '5e871b805ec488e7b1497e33eb83d43334ebd33c1f5feaa670deb2dfa12dd25e',
+	];
+	private const ORIGIN_SOURCE_COHORT = [
+		'WPGraphQL\\WooCommerce\\Utils\\Cart_Session_Operation' => 'e289f01f82a4865e488ca30e9d230fb1791727c3248002e4d712b8d9a9d1e2fa',
+		'WPGraphQL\\WooCommerce\\Mutation\\Checkout' => 'a242fc8acb7f53b7939e24eff7f8fa6a32758ee8f68a3547756b9bc5d97a1708',
+		'WPGraphQL\\WooCommerce\\Data\\Mutation\\Checkout_Mutation' => 'a5e8650ee3839e9cd8a68036cfdb7536bffdb4e7b3abeb1fee9d028937ed441b',
+		'WPGraphQL\\Type\\WPMutationType' => '33bfcaeec264a56c94367a9d49dfa61d1e9f21d24acfe903adca9fc4295207e7',
+		'WPGraphQL\\Utils\\InstrumentSchema' => '6f3bf9d2bd1b49798a0adc22aa843b8f5b74e89f73ebcb91916ea12957ba529c',
 	];
 	private const OWN_CALLBACKS = [
 		'graphql_process_http_request_response' => 'send_response',
@@ -26,6 +33,8 @@ final class Cart_Session_Lifecycle {
 		'all', 'graphql_process_http_request_response', 'graphql_response_headers_to_send',
 		'graphql_authentication_error_status_code', 'graphql_response_set_headers',
 		'woocommerce_cart_session_initialize',
+		'graphql_mutation_input', 'graphql_pre_mutate_and_get_payload',
+		'graphql_mutation_payload', 'graphql_mutation_response',
 	];
 	private $handler;
 	private $boundary;
@@ -45,7 +54,7 @@ final class Cart_Session_Lifecycle {
 	public function __construct( QL_Session_Handler $handler, string $credential_header, array $owned_cookie_names ) {
 		$this->handler = $handler;
 		$this->sources = defined( 'WOOGRAPHQL_CART_SESSION_SOURCE_COHORT' )
-			? WOOGRAPHQL_CART_SESSION_SOURCE_COHORT : self::SOURCE_COHORT;
+			? WOOGRAPHQL_CART_SESSION_SOURCE_COHORT : array_merge( self::SOURCE_COHORT, self::ORIGIN_SOURCE_COHORT );
 		$this->manifest = defined( 'WOOGRAPHQL_CART_SESSION_CALLBACK_COHORT' )
 			? WOOGRAPHQL_CART_SESSION_CALLBACK_COHORT : [];
 		$this->boundary = new Cart_Session_HTTP_Boundary( [ $this, 'cleanup' ], [ $credential_header ], $owned_cookie_names );
@@ -111,6 +120,10 @@ final class Cart_Session_Lifecycle {
 			$this->qualified_source( QL_Session_Handler::class );
 			return 10 === $priority && 1 === $arguments;
 		}
+		if ( $this->handler->is_cart_operation_callback( $hook, $callback, $priority, $arguments ) ) {
+			$this->qualified_source( Cart_Session_Operation::class );
+			return true;
+		}
 		return false;
 	}
 
@@ -159,6 +172,7 @@ final class Cart_Session_Lifecycle {
 			if ( null !== $registry ) {
 				if ( ! $registry instanceof \WP_Hook || \WP_Hook::class !== get_class( $registry ) ) { $this->reject(); }
 				foreach ( $registry->callbacks as $priority => $callbacks ) {
+					if ( ! is_int( $priority ) ) { $this->reject(); }
 					foreach ( $callbacks as $id => $entry ) {
 						$callback = $entry['function'] ?? null; $arguments = $entry['accepted_args'] ?? null;
 						if ( ! is_int( $arguments ) || ( ! $this->owned_callback( $hook, $callback, (int) $priority, $arguments )
@@ -186,6 +200,22 @@ final class Cart_Session_Lifecycle {
 		$this->cohort( false );
 		if ( null === $this->frozen ) { $this->arm_terminals(); $this->cohort( true ); }
 		if ( $this->handler->has_owned_scope() ) { $this->assert_objects(); }
+	}
+
+	/** The participating mutation hooks must already be frozen before any input. */
+	public function assert_checkout_origin_boundary(): void {
+		if ( null === $this->frozen || $this->terminal ) { $this->reject(); }
+		$this->cohort( false );
+		foreach ( [ Cart_Session_Operation::class, \WPGraphQL\WooCommerce\Mutation\Checkout::class,
+			\WPGraphQL\WooCommerce\Data\Mutation\Checkout_Mutation::class,
+			\WPGraphQL\Type\WPMutationType::class, \WPGraphQL\Utils\InstrumentSchema::class ] as $class ) {
+			$this->qualified_source( $class );
+		}
+		$registry = $GLOBALS['wp_filter']['graphql_pre_mutate_and_get_payload'] ?? null;
+		$entries = $registry instanceof \WP_Hook ? ( $registry->callbacks[ PHP_INT_MAX ] ?? [] ) : [];
+		$last = $entries ? end( $entries ) : null;
+		if ( ! is_array( $last ) || ! $this->handler->is_cart_operation_callback(
+			'graphql_pre_mutate_and_get_payload', $last['function'] ?? null, PHP_INT_MAX, $last['accepted_args'] ?? null ) ) { $this->reject(); }
 	}
 
 	/** Reject a changed specific-hook cohort before its non-owner callbacks run. */

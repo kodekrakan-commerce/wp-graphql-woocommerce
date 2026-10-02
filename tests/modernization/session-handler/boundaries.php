@@ -19,6 +19,8 @@ namespace WPGraphQL\WooCommerce\Utils {
 			\HandlerContractBoundary::event( 'writers-close' );
 			if ( $this->customer ) { \remove_action( 'shutdown', [ $this->customer, 'save' ], 10 ); }
 		}
+		/** Recording boundary only; genuine registry/origin checks run in the origin contract. */
+		public function assert_checkout_origin_boundary(): void { \HandlerContractBoundary::event( 'origin-boundary' ); }
 		public function is_terminal(): bool { return false; }
 	}
 }
