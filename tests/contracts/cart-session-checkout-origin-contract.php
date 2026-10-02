@@ -8,15 +8,15 @@ error_reporting(E_ALL); ini_set('display_errors','0'); ini_set('log_errors','0')
 $owner=dirname(__DIR__,2);$fixture=__DIR__.'/cart-session-checkout-origin-fixtures.php';
 // SOURCE_PINS_BEGIN
 const ORIGIN_PINS = [
- 'WPGraphQL\\WooCommerce\\Utils\\QL_Session_Handler'=>'38d929e5c2aaac50e753f8d5f7ff097c70816d8a09660cbe0d77118c58308fc3',
- 'WPGraphQL\\WooCommerce\\Utils\\Cart_Session_Operation'=>'4091afb3ad9dddf776e89b91b51c199ba2e6877081511ebfab03c0d60d2a5e1c',
- 'WPGraphQL\\WooCommerce\\Mutation\\Checkout'=>'a242fc8acb7f53b7939e24eff7f8fa6a32758ee8f68a3547756b9bc5d97a1708',
- 'WPGraphQL\\WooCommerce\\Data\\Mutation\\Checkout_Mutation'=>'501f228900e4a356c6cc64b476f614dc43f19c42a3480805a0b65a2f1c022a09',
+ 'WPGraphQL\\WooCommerce\\Utils\\QL_Session_Handler'=>'e17eea7a864614e03dfcff639385f102e1148176b1fa281f81e48ae3fd06b470',
+ 'WPGraphQL\\WooCommerce\\Utils\\Cart_Session_Operation'=>'0a1f6e9b48e46db49032568b1baf5de17e887b508362e446454968dbfe0834a2',
+ 'WPGraphQL\\WooCommerce\\Mutation\\Checkout'=>'18516e37a4c65538426a52d7c12ce9f4b7a99299e585f30cf3b257cd0ae615ac',
+ 'WPGraphQL\\WooCommerce\\Data\\Mutation\\Checkout_Mutation'=>'d86c544a0c5f2998c9f1c0de7e6a6f8598760e1060ee490cdfdb71444dd0dd56',
  'WPGraphQL\\Registry\\TypeRegistry'=>'f8c3f6af8596a01faa88f09a51637bf0b435ebc86fd3946dcaccdadf45b059cc',
  'WPGraphQL\\Type\\WPMutationType'=>'33bfcaeec264a56c94367a9d49dfa61d1e9f21d24acfe903adca9fc4295207e7',
  'WPGraphQL\\Utils\\InstrumentSchema'=>'6f3bf9d2bd1b49798a0adc22aa843b8f5b74e89f73ebcb91916ea12957ba529c',
  'WP_Hook'=>'b839c0e5672246bca8db1ab781ec8835f7732f253c375a237cbf6ec536e8d12e',
- 'WPGraphQL\\Router'=>'9566dc98d41d8894d316340a85f56b752f3d9b1fafd3e604cbcdca0b13d39617',
+ 'WPGraphQL\\Router'=>'42a311af53cb4cf7003521923a31d1d30838eb627b2790b38472f78c801e64b0',
  'WC_Customer'=>'9fdf1af2a94b581e33a044d12be7ba875bd0fa33f1618fba94517a65d62b1f18',
  'WC_Cart'=>'9fdf1af2a94b581e33a044d12be7ba875bd0fa33f1618fba94517a65d62b1f18',
  'WC_Cart_Session'=>'9fdf1af2a94b581e33a044d12be7ba875bd0fa33f1618fba94517a65d62b1f18',
@@ -39,7 +39,7 @@ $cases=[
  'ordinary'=>['ordinary',1,1,1],'ordinary-cart'=>[null,0,0,0],'filtered-input'=>['ordinary',1,1,1],
  'authenticated'=>['ordinary',1,1,0],'mixed'=>['ordinary',1,1,1],'distinct-roots'=>['ordinary',2,2,2],
  'merged'=>['ordinary',1,1,1],'directives'=>['ordinary',1,1,1],
- 'late-posted'=>['WL_CART_SESSION_TRANSITION_INVALID',1,1,1],'late-policy'=>['WL_CART_SESSION_TRANSITION_INVALID',1,1,1],
+ 'late-posted'=>['WL_CART_SESSION_UNAVAILABLE',1,1,1],'late-policy'=>['WL_CART_SESSION_UNAVAILABLE',1,1,1],
  'mixed-create'=>['WL_CART_SESSION_TRANSITION_INVALID',1,1,1],'double-consume'=>['WL_CART_SESSION_TRANSITION_INVALID',1,1,0],
  'prepare-throw'=>['ordinary',0,1,0],'recursive-entry'=>['WL_CART_SESSION_TRANSITION_INVALID',0,1,0],
  'input-drift'=>['WL_CART_SESSION_TRANSITION_INVALID',0,0,0],'context-drift'=>['WL_CART_SESSION_TRANSITION_INVALID',0,0,0],
@@ -47,7 +47,7 @@ $cases=[
  'wrong-closure'=>['WL_CART_SESSION_TRANSITION_INVALID',0,0,0],'nonnull-pre'=>['WL_CART_SESSION_TRANSITION_INVALID',0,0,0],
  'nonnull-pre-callback'=>['WL_CART_SESSION_TRANSITION_INVALID',0,0,0],
  'schema-drift'=>['WL_CART_SESSION_TRANSITION_INVALID',0,0,0],'operation-drift'=>['WL_CART_SESSION_TRANSITION_INVALID',0,0,0],
- 'entry-registry-swap'=>['WL_CART_SESSION_UNAVAILABLE',0,0,0],'consume-registry-swap'=>['WL_CART_SESSION_UNAVAILABLE',1,1,1],
+ 'entry-registry-swap'=>['WL_CART_SESSION_UNAVAILABLE',0,0,0],'consume-registry-swap'=>['WL_CART_SESSION_UNAVAILABLE',1,1,0],
  'posted-object'=>['WL_CART_SESSION_TRANSITION_INVALID',1,1,1],
  'one-owner'=>['ordinary',1,1,1],'recursive-capture'=>['WL_CART_SESSION_TRANSITION_INVALID',0,1,0],
  'path-drift'=>['WL_CART_SESSION_TRANSITION_INVALID',0,0,0],
@@ -67,7 +67,7 @@ foreach($cases as $name=>[$code,$entries,$prepare,$policy]){
 // Verify the natural production caller forwards exact context/info despite the
 // fixture's declared bypass of earlier native validation/session/order work.
 $source=file_get_contents($owner.'/includes/data/mutation/class-checkout-mutation.php');
-$call_ok=str_contains($source,'self::process_customer( $data, $context, $info );')&&str_contains($source,'$session->hold_checkout_customer_creation( $data, $context, $info );');
+$call_ok=str_contains($source,'self::process_customer( $data, $context, $info );')&&str_contains($source,'$session->create_checkout_customer( $data, $context, $info );');
 if(!$call_ok){$failures++;}echo($call_ok?'PASS ':'FAIL ')."actual natural caller context/info forwarding\n";
 echo 'RESULT '.(count($cases)+1).' cases, '.$failures." failures\n";
 foreach($paths as $name=>$path){echo 'SOURCE '.$name.' '.hash_file('sha256',$path)."\n";}

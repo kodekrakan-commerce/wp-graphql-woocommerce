@@ -16,6 +16,11 @@ export WL_MU_PLUGINS_SOURCE=/path/to/qualified/wl-mu-plugins
 php tests/contracts/cart-session-storage-contract.php
 php tests/contracts/cart-session-transfer-contract.php
 php tests/contracts/cart-session-creation-contract.php
+php tests/contracts/cart-session-checkout-order-contract.php
+# Requires WL_HEADLESS_LOGIN_SOURCE pointing at the qualified Headless Login tree.
+php tests/contracts/cart-session-native-cookie-contract.php
+php tests/contracts/cart-session-native-order-save-contract.php
+php tests/contracts/cart-session-native-customer-adoption-contract.php
 php tests/contracts/cart-session-http-boundary-contract.php
 php tests/contracts/cart-session-owned-handler-contract.php
 php tests/contracts/cart-session-lifecycle-contract.php
@@ -35,6 +40,8 @@ affected-behavior recheck.
 | --- | --- | --- |
 | Storage | Actual storage helper, driver interface, WooCommerce cache helpers and typed GraphQL errors; captured ownership, checked CRUD/cache invalidation, failure and pure response observation | Driver implementation, SQL, object cache and account hydration |
 | Transfer | Actual storage, frozen source fingerprint, sorted dual ownership, checked destination/retirement transaction and uncertainty outcomes | Driver/SQL/transaction/cache implementations; no native account, authentication or order |
+| Checkout order fence | Actual storage fixed-row canonical reader, creation-backed atomic transfer insertion, pending-ID binary CAS and atomic final-session/completion CAS; fresh facades cannot resume old authority | Driver/SQL/transaction/cache; no native customer/order or HTTP |
+| Dormant native cookie caller | Genuine Headless Login AuthCookie::set_auth_cookie with remember=false, genuine WP_Hook and actual lifecycle registration; one-argument send_auth_cookies preserves ordinary policy | Auth/token/user/settings and Woo; CLI only, no delivered credentials or complete login |
 | Creation reservation | Actual storage and canonical immutable attempt marker, checked marker-only commit, internal UUID reuse and exact transfer revalidation; failed/uncertain attempts cannot resume | Driver/SQL/transaction/cache implementations; no native customer insertion, admission or checkout caller |
 | HTTP | Actual exception handling, native headers/status/cookies, response encoding before finalization and output suppression after emission | Application cleanup and finalization |
 | Owned handler | Actual handler, storage, JWT and WooCommerce session parent; preflight, guest creation/retirement marker denial before hydration, identity admission, dirty writes, auth detach and terminal fencing | Lifecycle, WordPress hooks, authentication, SQL and cache |
@@ -50,9 +57,7 @@ a real capture defect. The runner checks source,
 receiver, hook order and argument count at capture, entry and final consumption,
 including input/context/Info/path drift, replacement closures, recapture, reentry,
 late policy and registry changes. Distinct ordinary noncreating roots remain valid;
-they cannot acquire single-root creation eligibility. Both the early account hold
-and final native creation-branch hold remain unconditional. No creation reservation,
-native account/authentication, cookie adoption or checkout/order path is activated.
+they cannot acquire single-root creation eligibility. Eligible single-root checkout now passes preflight without evaluating creation policy there. The actual final filtered branch consumes origin once and requires its native creation/source/callback cohort before reservation or effects. This origin runner intentionally omits that cohort and still proves zero account/authentication/order effects; it does not qualify successful creation, adoption or checkout.
 The older 56 operation cases retain a synthetic lowercase checkout callback and
 qualify preflight holds only. Their four synthetic checkout controls now require
 rejection before callback effects, because they cannot supply the default factory
@@ -85,12 +90,10 @@ suppresses PHP shutdown/destructor output, including ordinary WordPress buffer
 flushing. This does not undo shutdown database side effects, qualify streaming or
 unknown output callbacks, or intercept raw/SAPI output bypasses.
 
-Creation and transfer APIs remain dormant. Reservation burns one guest creation
-attempt before future native customer insertion; its marker never authenticates
+The source now connects creation and transfer to the qualified final checkout branch. Reservation burns one guest creation
+attempt before native customer insertion; its marker never authenticates
 or identifies an account whose insertion failed to return. Acknowledged reservation
-is required before its freeze, and transfer rollback preserves that marker. Future
-caller authority, both-marker admission checks, callback qualification, account
-reconciliation/retention and order preservation remain separate acceptance gates.
+is required before its freeze, and transfer rollback preserves that marker. The destination fixed-row fence is inserted in that transfer transaction. Authenticated admission reads it before hydration: pending closes healthy storage and returns a transition error; malformed or uncertain storage remains unavailable. The original adopted permit alone can bind an order ID and complete the empty final session atomically. A complete row permits later ordinary authenticated purchases without reviving its old creation attempt. Controlled storage/admission tests do not establish native insertion, cookie adoption, full order saves or HTTP delivery. Account reconciliation/retention and connected native journey/failure acceptance remain separate gates.
 
 ## Installation and connected acceptance remain separate
 
@@ -108,9 +111,7 @@ Before release, qualify the actual WordPress/WooCommerce/WPGraphQL/router/output
 configuration and driver together, including database errors/reconnect fencing,
 account cache invalidation before hydration, all captured native writers and
 overlapping A/B requests followed by an independent fresh C read. Both cart
-updates must survive without mutation replay. Trusted checkout transfers,
-provider authentication, native cookies, HPOS, store consumers and existing
-order/payment returns remain additional gates. Temporary transition holds are
+updates must survive without mutation replay. The source permits the first free creation journey only for the qualified CPT order store and single-site installation. Native checkout/account/cookie journey execution, provider authentication, HPOS, paid creation and payment reconciliation, store consumers and existing order/payment returns remain additional gates. Temporary transition holds are
 not final feature parity.
 
 ## Free-order completion result
@@ -125,3 +126,5 @@ WooCommerce datastore or callbacks. The separate actual Checkout closure contrac
 covers a controlled helper failure before its ID returns: the durable order remains
 unpurged. Natural checkout/cart clearing and native failure/reconciliation behavior
 remain connected-runtime acceptance work.
+
+The native order-save component regression executes the installed `WC_Order::payment_complete()` and `WC_Abstract_Order::save()` against a declared controlled datastore. It demonstrates the swallowed before-save exception, pending durable order, and literal `true` completion return, and checks that fresh payment save evidence rejects completion. The native customer adoption component executes actual `new WC_Customer(id, true)` and session datastore read/write with a controlled account datastore and empty metadata boundary. It verifies that the new ID rejects old guest addresses, the retained allowlist preserves addresses for the totals probe and final session, and account identity/role/email remain the new account's. These components do not qualify account insertion, HTTP cookie delivery, or the complete native creation journey.

@@ -273,29 +273,17 @@ class Checkout_Mutation {
 		}
 
 		if ( ! is_user_logged_in() && ( self::is_registration_required() || ! empty( $data['createaccount'] ) ) ) {
-			// This unshipped candidate has no qualified checkout transfer permit.
-			// Hold the actual creation branch before effects, using its single
-			// policy decision even when extension filters change after preflight.
+			// Consume authority only in this final filtered branch, after its policy decision.
 			if ( $is_graphql_session ) {
-				$session->hold_checkout_customer_creation( $data, $context, $info );
+				$customer_id = $session->create_checkout_customer( $data, $context, $info );
+			} else {
+				$username = ! empty( $data['account_username'] ) ? $data['account_username'] : '';
+				$password = ! empty( $data['account_password'] ) ? $data['account_password'] : '';
+				$customer_id = wc_create_new_customer( $data['billing_email'], $username, $password,
+					[ 'first_name' => $data['billing_first_name'] ?? '', 'last_name' => $data['billing_last_name'] ?? '' ] );
+				if ( is_wp_error( $customer_id ) ) { throw new UserError( $customer_id->get_error_message() ); }
+				wc_set_customer_auth_cookie( $customer_id );
 			}
-			$username    = ! empty( $data['account_username'] ) ? $data['account_username'] : '';
-			$password    = ! empty( $data['account_password'] ) ? $data['account_password'] : '';
-			$customer_id = wc_create_new_customer(
-				$data['billing_email'],
-				$username,
-				$password,
-				[
-					'first_name' => ! empty( $data['billing_first_name'] ) ? $data['billing_first_name'] : '',
-					'last_name'  => ! empty( $data['billing_last_name'] ) ? $data['billing_last_name'] : '',
-				]
-			);
-
-			if ( is_wp_error( $customer_id ) ) {
-				throw new UserError( $customer_id->get_error_message() );
-			}
-
-			wc_set_customer_auth_cookie( $customer_id );
 
 			// As we are now logged in, checkout will need to refresh to show logged in data.
 			WC()->session->set( 'reload_checkout', true );
@@ -578,8 +566,8 @@ class Checkout_Mutation {
 	 *
 	 * @return array
 	 */
-	protected static function process_order_without_payment( $order_id, $transaction_id = '' ) {
-		$order = wc_get_order( $order_id );
+	protected static function process_order_without_payment( $order_id, $transaction_id = '', $owned_order = null ) {
+		$order = null !== $owned_order ? $owned_order : wc_get_order( $order_id );
 		if ( ! is_object( $order ) || ! is_a( $order, \WC_Order::class ) ) {
 			throw new \Exception( __( 'Failed to retrieve order.', 'wp-graphql-woocommerce' ) );
 		}
@@ -640,7 +628,7 @@ class Checkout_Mutation {
 		// reuse an already validated, unchanged order in this exact session.
 		$retry_id = absint( WC()->session->get( 'order_awaiting_payment' ) );
 		$retry_order = $retry_id ? wc_get_order( $retry_id ) : false;
-		if ( $retry_order instanceof \WC_Order
+		if ( empty( $data['createaccount'] ) && $retry_order instanceof \WC_Order
 			&& $retry_order->get_meta( '_woonuxt_deferred_payment' ) === 'yes'
 			&& $retry_order->get_payment_method() === 'stripe'
 			&& $data['payment_method'] === 'stripe'
@@ -657,12 +645,20 @@ class Checkout_Mutation {
 		self::validate_checkout( $data );
 
 		self::process_customer( $data, $context, $info );
+		$handler = WC()->session instanceof \WPGraphQL\WooCommerce\Utils\QL_Session_Handler ? WC()->session : null;
+		if ( $handler && $handler->has_checkout_creation() ) {
+			$handler->protect_checkout_order();
+			if ( WC()->session->get( 'order_awaiting_payment' ) || WC()->cart->needs_payment() ) {
+				throw new \WPGraphQL\WooCommerce\Utils\Cart_Session_Transition_Error();
+			}
+		}
 		$order_id = WC()->checkout->create_order( $data );
-		$order    = wc_get_order( $order_id );
-
 		if ( is_wp_error( $order_id ) ) {
 			throw new UserError( $order_id->get_error_message() );
 		}
+
+		$order = $handler && $handler->protects_checkout_order() ? $handler->created_checkout_order( $order_id ) : wc_get_order( $order_id );
+		if ( $handler ) { $handler->verify_checkout_order_return( $order_id, $order ); }
 
 		if ( ! is_object( $order ) || ! is_a( $order, \WC_Order::class ) ) {
 			throw new UserError( __( 'Unable to create order.', 'wp-graphql-woocommerce' ) );
@@ -691,11 +687,16 @@ class Checkout_Mutation {
 		if ( $order->needs_payment() ) {
 			$results = self::process_order_payment( $order_id, $data['payment_method'] );
 		} else {
-			$results = self::process_order_without_payment( $order_id );
+			if ( $handler && $handler->protects_checkout_order() ) { $handler->begin_checkout_free_payment( $order ); }
+			$results = self::process_order_without_payment( $order_id, '', $handler && $handler->protects_checkout_order() ? $order : null );
 		}//end if
 
 		if ( 'success' === $results['result'] ) {
-			wc_empty_cart();
+			if ( $handler && $handler->protects_checkout_order() ) {
+				// Captured guest writers are closed; make the actual empty-cart effect explicit.
+				WC()->cart->empty_cart();
+				$handler->get_owned_lifecycle()->flush_empty_checkout_cart();
+			} else { wc_empty_cart(); }
 		}
 
 		return $order_id;

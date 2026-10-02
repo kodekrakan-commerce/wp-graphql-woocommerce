@@ -142,10 +142,8 @@ final class Cart_Session_Operation {
 		if ( in_array( $name, [ 'registerCustomer', 'registerUser', 'createAccount', 'forgetSession' ], true ) ) {
 			$this->reject();
 		}
-		if ( 'checkout' === $name && 0 === (int) get_current_user_id()
-			&& ( ! empty( $input['account'] ) || \WPGraphQL\WooCommerce\Data\Mutation\Checkout_Mutation::is_registration_required() ) ) {
-			$this->reject();
-		}
+		if ( 'checkout' === $name && 0 === (int) get_current_user_id() && ! empty( $input['account'] )
+			&& null === $this->checkout_eligible_key ) { $this->reject(); }
 	}
 
 	/** Copy only scalar/array input: no object, reference or caller policy authority. */

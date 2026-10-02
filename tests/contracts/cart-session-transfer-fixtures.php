@@ -98,6 +98,10 @@ final class Transfer_Contract_Database implements \WLCommerce\Database\Owned_Sco
 	}
 	public function get_row( $query ) {
 		$this->assert_owned( $this->handle ); [ $sql, $args ] = $this->decode( $query );
+		if ( 'SELECT option_value, autoload FROM %i WHERE option_name = %s' === $sql ) {
+			storage_expect( 'wp_options' === $args[0] ); $row = $this->ledger[$args[1]] ?? null;
+			return $this->fault( 'order-read', null === $row ? null : (object) [ 'option_value'=>$row['value'], 'autoload'=>$row['autoload'] ] );
+		}
 		storage_expect( 'SELECT session_value, session_expiry FROM %i WHERE session_key = %s' === $sql && 'wp_woocommerce_sessions' === $args[0] );
 		$row = $this->rows[$args[1]] ?? null;
 		return $this->fault( 'snapshot-read', $row ? (object) [ 'session_value' => $row['bytes'], 'session_expiry' => $row['expiry'] ] : null );
@@ -114,6 +118,8 @@ final class Transfer_Contract_Database implements \WLCommerce\Database\Owned_Sco
 		$label = match ( true ) {
 			'START TRANSACTION' === $sql => 'start', 'COMMIT' === $sql => 'commit', 'ROLLBACK' === $sql => 'rollback',
 			str_contains( $sql, 'ON DUPLICATE KEY UPDATE' ) => 'guest-persist',
+			str_starts_with( $sql, 'UPDATE' ) && str_contains( $sql, 'option_name' ) => 'order-cas',
+			str_starts_with( $sql, 'UPDATE' ) && str_contains( $sql, 'session_value' ) => 'final-session',
 			str_contains( $sql, 'option_name' ) => 'ledger-insert',
 			str_starts_with( $sql, 'INSERT' ) => 'destination-insert',
 			default => throw new RuntimeException( 'Unqualified synthetic SQL.' ),
@@ -133,7 +139,15 @@ final class Transfer_Contract_Database implements \WLCommerce\Database\Owned_Sco
 		if ( $apply ) {
 			switch ( $label ) {
 				case 'guest-persist': $this->rows[$args[1]] = [ 'bytes' => $args[2], 'expiry' => $args[3] ]; break;
-				case 'start': $this->pending = [ 'rows' => $this->rows, 'ledger' => $this->ledger ]; break;
+				case 'order-cas':
+					storage_expect( 'UPDATE %i SET option_value = %s WHERE option_name = %s AND BINARY option_value = BINARY %s AND autoload = %s' === $sql && 'wp_options' === $args[0] && 'no' === $args[4] );
+					if ( ! isset( $this->pending['ledger'][$args[2]] ) || $this->pending['ledger'][$args[2]] !== [ 'value'=>$args[3], 'autoload'=>$args[4] ] ) { $result = 0; break; }
+					$this->pending['ledger'][$args[2]]['value'] = $args[1]; break;
+				case 'final-session':
+					storage_expect( 'UPDATE %i SET session_value = %s, session_expiry = %d WHERE session_key = %s' === $sql && 'wp_woocommerce_sessions' === $args[0] );
+					if ( ! isset( $this->pending['rows'][$args[3]] ) ) { $result = 0; break; }
+					$this->pending['rows'][$args[3]] = [ 'bytes'=>$args[1], 'expiry'=>$args[2] ]; break;
+				case 'start': if ( null !== $this->pending ) { throw new RuntimeException( 'Nested transaction.' ); } $this->pending = [ 'rows' => $this->rows, 'ledger' => $this->ledger ]; break;
 				case 'destination-insert':
 					if ( isset( $this->pending['rows'][$args[1]] ) ) { $result = false; break; }
 					$this->pending['rows'][$args[1]] = [ 'bytes' => $args[2], 'expiry' => $args[3] ]; break;

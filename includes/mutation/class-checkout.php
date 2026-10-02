@@ -167,6 +167,10 @@ class Checkout {
 				 * @param \GraphQL\Type\Definition\ResolveInfo $info    Request ResolveInfo instance.
 				 */
 				do_action( 'graphql_woocommerce_after_checkout', $order, $input, $context, $info );
+				if ( $handler && $handler->protects_checkout_order() ) {
+					if ( 'success' !== ( $results['result'] ?? null ) ) { throw new \WPGraphQL\WooCommerce\Utils\Cart_Session_Transition_Error(); }
+					$handler->checkout_free_order_succeeded( $handler->created_checkout_order( $order_id ) );
+				}
 
 				return array_merge( [ 'id' => $order_id ], $results );
 			} catch ( \Throwable $e ) {
@@ -177,7 +181,7 @@ class Checkout {
 					throw $e;
 				}
 				// Delete order if it was created.
-				if ( is_object( $order ) ) {
+				if ( is_object( $order ) && ! ( $handler && $handler->protects_checkout_order() ) ) {
 					Order_Mutation::purge( $order );
 				}
 				// Throw error.

@@ -7,7 +7,7 @@
  * Set WL_WORDPRESS_SOURCE, WL_WPGRAPHQL_SOURCE, WL_MU_PLUGINS_SOURCE. PHP8.2+.
  */
 error_reporting( E_ALL ); ini_set( 'display_errors', '0' ); ini_set( 'log_errors', '0' );
-const LIFECYCLE_FIXTURE_SHA = 'c4a9ecef13d6b0ae4a10f636d6434b9c59b807a5de10b3ccf2694f9de0c32373';
+const LIFECYCLE_FIXTURE_SHA = '9c558304f606838c171b114348038ff9c09fb1e70020479b2f1a067ca4c4d2b0';
 const LIFECYCLE_WP_HOOK_SHA = 'b839c0e5672246bca8db1ab781ec8835f7732f253c375a237cbf6ec536e8d12e';
 $endpoint = __DIR__ . '/cart-session-lifecycle-fixtures.php';
 $owner = dirname( __DIR__, 2 );

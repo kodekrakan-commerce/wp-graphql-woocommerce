@@ -96,6 +96,8 @@ class QL_Session_Handler extends WC_Session_Handler {
 	private $admitted_user_id = 0;
 	private $guest_marker_rejected = false;
 	private $guest_marker_rejected_closed = false;
+	private $checkout_attempt;
+	private $checkout_pending_rejected = false;
 
 	/** @var string|null The admitted persisted session key. */
 	private $admitted_customer_id = null;
@@ -282,7 +284,10 @@ class QL_Session_Handler extends WC_Session_Handler {
 		} catch ( \Throwable $error ) {
 			// Validated-session callbacks may fail after construction too. Early WC
 			// bootstrap still must not escape Router's controlled error boundary.
-			if ( $this->guest_marker_rejected && $error instanceof Cart_Session_Error
+			if ( $this->checkout_pending_rejected && $error instanceof Cart_Session_Transition_Error
+				&& 'WL_CART_SESSION_TRANSITION_INVALID' === $this->session_failure ) {
+				try { $this->assert_response_available(); } catch ( \Throwable $unavailable ) { $this->quarantine( Cart_Session_Error::UNAVAILABLE ); }
+			} elseif ( $this->guest_marker_rejected && $error instanceof Cart_Session_Error
 				&& [ 'code' => Cart_Session_Error::INVALID ] === $error->getExtensions()
 				&& Cart_Session_Error::INVALID === $this->session_failure ) {
 				// A canonical burned guest is a credential rejection while its
@@ -927,6 +932,16 @@ class QL_Session_Handler extends WC_Session_Handler {
 				throw new Cart_Session_Error( Cart_Session_Error::INVALID );
 			}
 		}
+		if ( $this->admitted_user_id > 0 ) {
+			$fence = $this->owned_storage->read_checkout_order_attempt( $driver->options ?? null );
+			if ( is_array( $fence ) && 'pending' === $fence['state'] ) {
+				$this->owned_storage->seal(); $this->owned_storage->release();
+				$this->owned_storage->assert_response_available();
+				$this->guest_marker_rejected_closed = true; $this->checkout_pending_rejected = true;
+				$this->quarantine( 'WL_CART_SESSION_TRANSITION_INVALID' );
+				throw new Cart_Session_Transition_Error();
+			}
+		}
 		$this->owned_storage->invalidate_account_caches();
 	}
 
@@ -993,7 +1008,13 @@ class QL_Session_Handler extends WC_Session_Handler {
 		$this->assert_session_ready();
 		$this->assert_owned_scope();
 		try {
-			$this->save_data();
+			if ( null !== $this->checkout_attempt ) {
+				if ( ! $this->checkout_attempt->success || ! $this->checkout_attempt->saved || ! $this->checkout_attempt->order
+					|| ! \WC()->cart->is_empty() ) { throw new Cart_Session_Error( Cart_Session_Error::UNAVAILABLE ); }
+				$this->checkout_free_order_succeeded( $this->checkout_attempt->order );
+				$this->owned_storage->complete_checkout_order( $this->_data, $this->_session_expiration );
+				$this->_dirty = false;
+			} else { $this->save_data(); }
 			$this->owned_storage->seal();
 			$this->owned_storage->release();
 			$this->owned_finalized = true;
@@ -1051,16 +1072,149 @@ class QL_Session_Handler extends WC_Session_Handler {
 		$this->owned_operation->enter_checkout( $entry, $input, $context, $info );
 	}
 
-	/** Dormant one-use consumption; the actual creation branch remains closed. */
-	public function hold_checkout_customer_creation( $data, $context, $info ): never {
+	/** One-use actual final creation branch; all uncertainty burns the guest reservation. */
+	public function begin_checkout_customer_creation( $data, $context, $info ): void {
 		$this->assert_session_ready(); $this->assert_owned_scope();
-		if ( ! $this->owned_operation || 0 !== $this->admitted_user_id || 0 !== (int) get_current_user_id()
-			|| ( \WC()->session ?? null ) !== $this || (string) $this->_customer_id !== $this->admitted_customer_id ) {
+		if ( ! $this->owned_operation || null !== $this->checkout_attempt || 0 !== $this->admitted_user_id
+			|| 0 !== (int) get_current_user_id() || ( \WC()->session ?? null ) !== $this
+			|| (string) $this->_customer_id !== $this->admitted_customer_id ) {
 			$this->reject_cart_operation(); throw new Cart_Session_Transition_Error();
 		}
 		$this->owned_operation->consume_checkout_creation_origin( $data, $context, $info );
-		$this->reject_cart_operation();
-		throw new Cart_Session_Transition_Error();
+		$this->owned_lifecycle->qualify_checkout_creation( $context );
+		$this->checkout_attempt = (object) [ 'uuid' => null, 'user_id' => 0, 'auth_expected' => false,
+			'adopted' => false, 'protected' => false, 'selected_customer_token' => $this->customer_token_prepared, 'order' => null, 'store' => null, 'saved' => false, 'save_active' => false, 'save_failed' => false, 'save_started' => 0, 'save_completed' => 0, 'payment_started' => false, 'success' => false ];
+		try {
+			$this->owned_storage->reserve_checkout_creation( $GLOBALS['wpdb']->options );
+			$this->owned_lifecycle->close_writers();
+			$this->checkout_attempt->uuid = $this->owned_storage->freeze_for_checkout_transfer( $this->_data, $this->_session_expiration );
+		} catch ( \Throwable $error ) { $this->latch_owned_failure(); throw $error; }
+	}
+
+	/** Native insertion result never crosses a caller-supplied account adoption API. */
+	public function create_checkout_customer( $data, $context, $info ): int {
+		$this->begin_checkout_customer_creation( $data, $context, $info );
+		try {
+			$id = \wc_create_new_customer( $data['billing_email'], $data['account_username'] ?? '', $data['account_password'] ?? '',
+				[ 'first_name' => $data['billing_first_name'] ?? '', 'last_name' => $data['billing_last_name'] ?? '' ] );
+			if ( is_wp_error( $id ) ) { throw new \GraphQL\Error\UserError( $id->get_error_message() ); }
+			if ( ! is_int( $id ) || $id <= 0 ) { throw new Cart_Session_Error( Cart_Session_Error::UNAVAILABLE ); }
+			$this->adopt_checkout_customer( $id, $context );
+			return $id;
+		} catch ( \Throwable $error ) {
+			// The native insert may already be durable. Never infer an ID, purge or retry.
+			$this->latch_owned_failure(); throw $error;
+		}
+	}
+
+	private function adopt_checkout_customer( $customer_id, $context ): void {
+		if ( null === $this->checkout_attempt || $this->checkout_attempt->adopted || ! is_int( $customer_id ) || $customer_id <= 0 ) {
+			throw new Cart_Session_Error( Cart_Session_Error::UNAVAILABLE );
+		}
+		try {
+			$this->owned_storage = $this->owned_storage->stage_checkout_transfer( $customer_id, $GLOBALS['wpdb']->options );
+			$this->owned_storage->commit_checkout_transfer();
+			$this->owned_storage->invalidate_account_caches();
+			$this->checkout_attempt->user_id = $customer_id;
+			$this->checkout_attempt->auth_expected = true;
+			$this->owned_lifecycle->arm_checkout_cookie_capsule( $customer_id );
+			\wc_set_customer_auth_cookie( $customer_id );
+			if ( $this->checkout_attempt->auth_expected || ! $this->checkout_attempt->adopted ) { throw new Cart_Session_Error( Cart_Session_Error::UNAVAILABLE ); }
+			$this->owned_lifecycle->adopt_checkout_customer( $context );
+			$this->prepare_session_token();
+			if ( $this->checkout_attempt->selected_customer_token ) { $this->prepare_customer_session_token(); }
+			$this->complete_session_preparation();
+		} catch ( \Throwable $error ) { $this->latch_owned_failure(); throw $error; }
+	}
+
+	public function protect_checkout_order(): void {
+		if ( null === $this->checkout_attempt ) { return; }
+		if ( ! $this->checkout_attempt->adopted || $this->checkout_attempt->protected ) { throw new Cart_Session_Error( Cart_Session_Error::UNAVAILABLE ); }
+		$this->checkout_attempt->protected = true;
+	}
+
+	/** Sticky across origin cleanup and exceptions, including lost create_order return. */
+	public function protects_checkout_order(): bool { return null !== $this->checkout_attempt && $this->checkout_attempt->protected; }
+	public function has_checkout_creation(): bool { return null !== $this->checkout_attempt; }
+
+	public function capture_checkout_order( $order, $data ): void {
+		if ( ! $this->protects_checkout_order() ) { return; }
+		$this->assert_session_ready(); $this->assert_owned_scope();
+		if ( $this->checkout_attempt->order || ! $order instanceof \WC_Order || get_class( $order ) !== 'WC_Order'
+			|| 0 !== $order->get_id() || $this->admitted_user_id !== (int) $order->get_customer_id( 'edit' ) ) { throw new Cart_Session_Error( Cart_Session_Error::UNAVAILABLE ); }
+		$order->add_meta_data( '_wl_checkout_operation_uuid', $this->checkout_attempt->uuid, true );
+		$this->checkout_attempt->order = $order; $this->checkout_attempt->store = $order->get_data_store();
+	}
+
+	public function bind_checkout_order( $id, $order ): void {
+		if ( ! $this->protects_checkout_order() ) { return; }
+		$this->assert_session_ready(); $this->assert_owned_scope();
+		if ( $order !== $this->checkout_attempt->order || ! is_int( $id ) || $id <= 0 || $id !== $order->get_id()
+			|| $this->admitted_user_id !== (int) $order->get_customer_id( 'edit' )
+			|| $this->checkout_attempt->uuid !== $order->get_meta( '_wl_checkout_operation_uuid', true, 'edit' ) ) { throw new Cart_Session_Error( Cart_Session_Error::UNAVAILABLE ); }
+		$this->owned_storage->bind_checkout_order( $id );
+	}
+
+	/** Runs before any qualified external before-save callback can fail. */
+	public function checkout_order_saving( $order, $store ): void {
+		if ( ! $this->protects_checkout_order() || $order !== $this->checkout_attempt->order ) { return; }
+		$this->assert_session_ready(); $this->assert_owned_scope();
+		if ( $store !== $this->checkout_attempt->store ) { throw new Cart_Session_Error( Cart_Session_Error::UNAVAILABLE ); }
+		if ( $this->checkout_attempt->save_active || $this->checkout_attempt->save_failed ) {
+			$this->checkout_attempt->save_failed = true; $this->checkout_attempt->saved = false;
+			throw new Cart_Session_Error( Cart_Session_Error::UNAVAILABLE );
+		}
+		$this->checkout_attempt->save_active = true;
+		++$this->checkout_attempt->save_started;
+		$this->checkout_attempt->saved = false;
+	}
+
+	/** A previous successful create/save cannot authorize the payment save. */
+	public function begin_checkout_free_payment( $order ): void {
+		if ( ! $this->protects_checkout_order() ) { return; }
+		$this->verify_checkout_order_return( $order->get_id(), $order );
+		if ( $this->checkout_attempt->payment_started ) { throw new Cart_Session_Error( Cart_Session_Error::UNAVAILABLE ); }
+		$this->checkout_attempt->payment_started = true;
+		$this->checkout_attempt->saved = false;
+		$this->checkout_attempt->save_started = 0;
+		$this->checkout_attempt->save_active = false;
+		$this->checkout_attempt->save_completed = 0;
+	}
+
+	public function checkout_order_saved( $order, $store ): void {
+		if ( ! $this->protects_checkout_order() || $order !== $this->checkout_attempt->order ) { return; }
+		$this->assert_session_ready(); $this->assert_owned_scope();
+		$fence = $this->owned_storage->read_checkout_order_attempt( $GLOBALS['wpdb']->options );
+		if ( ! $this->checkout_attempt->save_active || $this->checkout_attempt->save_failed
+			|| $store !== $this->checkout_attempt->store || ! is_array( $fence ) || $order->get_id() <= 0 || $fence['order_id'] !== $order->get_id()
+			|| $fence['operation_uuid'] !== $this->checkout_attempt->uuid ) { throw new Cart_Session_Error( Cart_Session_Error::UNAVAILABLE ); }
+		$this->checkout_attempt->save_active = false;
+		$this->checkout_attempt->save_completed = $this->checkout_attempt->save_started;
+		$this->checkout_attempt->saved = $this->checkout_attempt->save_started > 0;
+	}
+
+	public function created_checkout_order( $id ) {
+		$order = $this->checkout_attempt->order ?? null;
+		$this->verify_checkout_order_return( $id, $order );
+		return $order;
+	}
+
+	public function verify_checkout_order_return( $id, $order ): void {
+		if ( ! $this->protects_checkout_order() ) { return; }
+		$this->assert_session_ready(); $this->assert_owned_scope();
+		if ( ! is_int( $id ) || $id <= 0 || ! $this->checkout_attempt->saved || $this->checkout_attempt->save_active || $this->checkout_attempt->save_failed || $order !== $this->checkout_attempt->order
+			|| $order->get_id() !== $id || $order->needs_payment() || 0.0 !== (float) $order->get_total( 'edit' ) ) { throw new Cart_Session_Error( Cart_Session_Error::UNAVAILABLE ); }
+	}
+
+	public function checkout_free_order_succeeded( $order ): void {
+		if ( ! $this->protects_checkout_order() ) { return; }
+		$this->verify_checkout_order_return( $order->get_id(), $order );
+		if ( ! $this->checkout_attempt->payment_started || $this->checkout_attempt->save_started < 1
+			|| $this->checkout_attempt->save_completed !== $this->checkout_attempt->save_started
+			|| ! in_array( $order->get_status( 'edit' ), [ 'processing', 'completed' ], true )
+			|| ! $order->get_date_paid( 'edit' ) || ! \WC()->cart->is_empty() ) { throw new Cart_Session_Error( Cart_Session_Error::UNAVAILABLE ); }
+		unset( $this->_data['order_awaiting_payment'], $this->_data['reload_checkout'] );
+		$this->_dirty = true; $this->checkout_attempt->success = true;
 	}
 
 	/** Always close on the original receiver; no SQL, signing or hook dispatch. */
@@ -1108,6 +1262,19 @@ class QL_Session_Handler extends WC_Session_Handler {
 
 	/** Native checkout must not reinitialize/migrate an admitted GraphQL cart. */
 	public function init_session_cookie() {
+		// Consume only the armed native event before the ordinary changed-identity guard.
+		if ( null !== $this->checkout_attempt && $this->checkout_attempt->auth_expected ) {
+			if ( ! $this->graphql_mode || $this->checkout_attempt->user_id !== (int) get_current_user_id()
+				|| ! $this->owned_lifecycle->consume_checkout_cookie_capsule() ) { $this->latch_owned_failure(); throw new Cart_Session_Error( Cart_Session_Error::UNAVAILABLE ); }
+			$this->checkout_attempt->auth_expected = false;
+			$this->admitted_user_id = $this->checkout_attempt->user_id;
+			$this->admitted_customer_id = (string) $this->admitted_user_id; $this->_customer_id = $this->admitted_customer_id;
+			$this->prepared_token = false; $this->prepared_customer_token = false;
+			$this->token_prepared = false; $this->customer_token_prepared = false;
+			$this->_has_token = false; $this->_issuing_new_token = false; $this->_has_cookie = false; $this->_issuing_new_cookie = false;
+			$this->checkout_attempt->adopted = true;
+			return;
+		}
 		if ( ! $this->session_access_allowed() ) {
 			return;
 		}
@@ -1157,6 +1324,7 @@ class QL_Session_Handler extends WC_Session_Handler {
 			return;
 		}
 		if ( $this->graphql_mode ) {
+			if ( null !== $this->checkout_attempt ) { return; }
 			if ( $this->_dirty ) {
 				try {
 					$this->owned_storage->write( $this->_data, $this->_session_expiration );

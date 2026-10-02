@@ -97,7 +97,7 @@ final class Cart_Session_HTTP_Boundary {
 			$this->require_qualified();
 			$body = \json_encode( $response, JSON_THROW_ON_ERROR | JSON_UNESCAPED_SLASHES );
 			$this->require_qualified();
-			$checked_finalize();
+			$cookie_batch = $checked_finalize();
 			$this->require_qualified();
 			$status = $status ?? ( \http_response_code() ?: 200 );
 			if ( $status < 100 || $status > 599 ) {
@@ -106,8 +106,32 @@ final class Cart_Session_HTTP_Boundary {
 		} catch ( \Throwable $error ) {
 			$this->fail();
 		}
+		$this->publish_native_cookie_batch( $cookie_batch );
 		$this->restore();
 		$this->emit( $body, $status, false );
+	}
+
+	/** Pure publisher: exact native argument batch only, never a post-release callback. */
+	private function publish_native_cookie_batch( $batch ): void {
+		if ( null === $batch ) { return; }
+		$previous = [];
+		foreach ( \headers_list() as $header ) { if ( 0 === stripos( $header, 'Set-Cookie:' ) ) { $previous[] = $header; } }
+		try {
+			$this->require_qualified();
+			if ( ! is_array( $batch ) || ! array_is_list( $batch ) || count( $batch ) < 3 || count( $batch ) > 4 ) { throw new \UnexpectedValueException(); }
+			foreach ( $batch as $cookie ) {
+				if ( ! is_array( $cookie ) || ! array_is_list( $cookie ) || 7 !== count( $cookie ) || ! $this->valid_name( $cookie[0] )
+					|| ! is_string( $cookie[1] ) || '' === $cookie[1] || preg_match( '/[\r\n\x00]/', $cookie[1] )
+					|| ! is_int( $cookie[2] ) || $cookie[2] <= time() || ! is_string( $cookie[3] ) || ! is_string( $cookie[4] )
+					|| preg_match( '/[\r\n\x00;]/', $cookie[3] . $cookie[4] ) || ! is_bool( $cookie[5] ) || true !== $cookie[6] ) { throw new \UnexpectedValueException(); }
+			}
+			foreach ( $batch as $cookie ) { if ( ! \setcookie( ...$cookie ) ) { throw new \UnexpectedValueException(); } }
+			$this->require_qualified();
+		} catch ( \Throwable $error ) {
+			// Undo only the newly queued batch; prior and unrelated auth remain byte-exact.
+			if ( ! \headers_sent() ) { \header_remove( 'Set-Cookie' ); foreach ( $previous as $header ) { \header( $header, false ); } }
+			$this->fail();
+		}
 	}
 
 	/** Early auth responses are preserved without a successful writer flush. */

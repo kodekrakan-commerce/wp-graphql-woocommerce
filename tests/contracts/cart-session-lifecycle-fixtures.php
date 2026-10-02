@@ -13,6 +13,7 @@ namespace WPGraphQL\WooCommerce\Utils {
 		public $broken = false;
 		public $rejected = false;
 		public function has_session_rejection() { return $this->rejected; }
+		public function has_checkout_creation() { return false; }
 		public function is_cart_operation_callback($hook,$callback,$priority,$args) { return false; }
 		public function reject_cart_operation() { $this->assert_response_available(); $this->rejected = true; }
 		public function has_owned_scope() { return $this->owned; }
@@ -32,6 +33,8 @@ namespace WPGraphQL\WooCommerce\Utils {
 	}
 }
 namespace WPGraphQL { final class Router {} }
+// Settings only are controlled for the genuine Headless Login AuthCookie caller.
+namespace WPGraphQL\Login\Utils { final class Utils { public static function get_cookie_setting( $name, $default ) { return $default; } } }
 namespace {
 	error_reporting( E_ALL ); ini_set( 'display_errors', '0' ); ini_set( 'log_errors', '0' );
 	$owner = dirname( __DIR__, 2 );
@@ -59,6 +62,8 @@ namespace {
 	function WC() { return $GLOBALS['lifecycle_wc']; }
 	function get_current_user_id() { return $GLOBALS['lifecycle_user']; }
 	function __( $text, $domain = null ) { return $text; }
+	function lifecycle_auth_policy( $send ) { $GLOBALS['lifecycle_state']['headless_send_argument_count'] = func_num_args(); return 'headless-cookie-policy-denial' !== $GLOBALS['lifecycle_case']; }
+	function lifecycle_observe_auth_cookie( $cookie, $expire, $expiration, $id, $scheme, $token ) { $GLOBALS['lifecycle_state']['headless_expire'] = $expire; $GLOBALS['lifecycle_state']['headless_expiration'] = $expiration; }
 	function lifecycle_unrelated() { lifecycle_event( 'unrelated.callback' ); }
 	function lifecycle_known_response( $response ) { lifecycle_event( 'known.response' ); return $response; }
 	function lifecycle_known_header( $headers ) { lifecycle_event( 'known.header' ); return $headers; }
@@ -178,6 +183,10 @@ namespace {
 	if ( 'manifest-wrong-signature' === $case ) { $manifest[0]['accepted_args'] = 2; }
 	// Permit this reviewed callback to be installed after install, before dispatch.
 	if ( 'rearmed-max' === $case ) { $manifest[] = lifecycle_record( 'graphql_process_http_request_response', 'lifecycle_known_response', PHP_INT_MAX, 1 ); }
+	if ( str_starts_with( $case, 'headless-cookie-' ) ) {
+		$register( 'send_auth_cookies', 'lifecycle_auth_policy', 10, 1 );
+		$register( 'set_auth_cookie', 'lifecycle_observe_auth_cookie', 10, 6 );
+	}
 	define( 'WOOGRAPHQL_CART_SESSION_CALLBACK_COHORT', $manifest );
 	$fixture_hash = getenv( 'WL_LIFECYCLE_FIXTURE_SHA' );
 	$sources = [ 'WP_Hook' => 'b839c0e5672246bca8db1ab781ec8835f7732f253c375a237cbf6ec536e8d12e' ];
@@ -209,6 +218,22 @@ namespace {
 	if ( 'rearmed-max' === $case ) { add_filter( 'graphql_process_http_request_response', 'lifecycle_known_response', PHP_INT_MAX, 1 ); }
 	if ( 'auth-detached' === $case ) { $handler->detached = true; $handler->owned = false; }
 	do_action( 'do_graphql_request' );
+	if ( str_starts_with( $case, 'headless-cookie-' ) ) {
+		$headless = rtrim( getenv( 'WL_HEADLESS_LOGIN_SOURCE' ) ?: '', '/' );
+		$file = $headless . '/src/Auth/AuthCookie.php';
+		if ( ! is_file( $file ) || ! hash_equals( getenv( 'WL_HEADLESS_COOKIE_SHA' ) ?: '', hash_file( 'sha256', $file ) ) ) { throw new \RuntimeException( 'Genuine pinned Headless Login cookie source required.' ); }
+		foreach ( [ 'DAY_IN_SECONDS'=>86400, 'HOUR_IN_SECONDS'=>3600, 'AUTH_COOKIE'=>'synthetic_auth', 'SECURE_AUTH_COOKIE'=>'synthetic_secure',
+			'LOGGED_IN_COOKIE'=>'synthetic_logged_in', 'PLUGINS_COOKIE_PATH'=>'/plugins', 'ADMIN_COOKIE_PATH'=>'/admin', 'COOKIEPATH'=>'/', 'SITECOOKIEPATH'=>'/' ] as $name=>$value ) { if ( ! defined( $name ) ) { define( $name, $value ); } }
+		// Auth/token persistence is deliberately substituted; this case checks native caller shape and dormant compatibility.
+		function is_ssl() { return true; }
+		function wp_parse_url( $url, $component ) { return parse_url( $url, $component ); }
+		function get_option( $key ) { return 'https://synthetic.example.invalid'; }
+		function wp_generate_auth_cookie( $id, $expiration, $scheme, $token ) { return 'synthetic-cookie-' . $scheme; }
+		class WP_Session_Tokens { public static function get_instance( $id ) { return new self(); } public function create( $expiry ) { return 'controlled-token'; } }
+		require $file;
+		\WPGraphQL\Login\Auth\AuthCookie::set_auth_cookie( 7, false );
+		$lifecycle->cleanup(); echo '{"data":{"nativeHeadlessCookieReturned":true}}'; exit;
+	}
 	if ( 'unknown-after-freeze' === $case ) { add_filter( 'graphql_process_http_request_response', 'lifecycle_unknown', 5, 1 ); }
 	if ( 'registry-changed' === $case ) { $GLOBALS['wp_filter']['graphql_process_http_request_response'] = clone $GLOBALS['wp_filter']['graphql_process_http_request_response']; }
 	if ( 'callback-arguments-changed' === $case ) { add_filter( 'graphql_process_http_request_response', 'lifecycle_known_response', 10, 2 ); }

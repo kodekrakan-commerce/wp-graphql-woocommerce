@@ -9,8 +9,8 @@
  */
 error_reporting( E_ALL ); ini_set( 'display_errors', '0' ); ini_set( 'log_errors', '0' );
 const INTEGRATION_FIXTURE_SHA = '5cc3c4d56ea19f307df10d4faed0d7aa0edb577afd0fbc2c46ba7e9c782aa33d';
-const INTEGRATION_ADAPTER_SHA = '9566dc98d41d8894d316340a85f56b752f3d9b1fafd3e604cbcdca0b13d39617';
-const INTEGRATION_HANDLER_SHA = '38d929e5c2aaac50e753f8d5f7ff097c70816d8a09660cbe0d77118c58308fc3';
+const INTEGRATION_ADAPTER_SHA = '42a311af53cb4cf7003521923a31d1d30838eb627b2790b38472f78c801e64b0';
+const INTEGRATION_HANDLER_SHA = 'e17eea7a864614e03dfcff639385f102e1148176b1fa281f81e48ae3fd06b470';
 const INTEGRATION_RESULT_SHA = '899f37cf608b43eddba734604ba301e178b02f7bf12edf0b8b920b4053435fd9';
 $owner = dirname( __DIR__, 2 ); $endpoint = __DIR__ . '/cart-session-lifecycle-integration-fixture.php';
 $source_files = [ 'handler' => $owner . '/includes/utils/class-ql-session-handler.php', 'fixture' => $endpoint, 'adapter' => __DIR__ . '/cart-session-owned-handler-fixtures.php' ];
@@ -28,7 +28,7 @@ $source_files['ExecutionResult'] = $gql . '/vendor/webonyx/graphql-php/src/Execu
 if ( ! hash_equals( INTEGRATION_RESULT_SHA, hash_file( 'sha256', $source_files['ExecutionResult'] ) ) ) { fwrite( STDERR, "Reviewed native ExecutionResult source differs.\n" ); exit( 2 ); }
 $source_before = array_map( fn( $file ) => hash_file( 'sha256', $file ), $source_files );
 putenv( 'WL_INTEGRATION_FIXTURE_SHA=' . INTEGRATION_FIXTURE_SHA ); putenv( 'WL_INTEGRATION_ADAPTER_SHA=' . INTEGRATION_ADAPTER_SHA ); putenv( 'WL_INTEGRATION_HANDLER_SHA=' . INTEGRATION_HANDLER_SHA );
-putenv('WL_INTEGRATION_OPERATION_SHA=4091afb3ad9dddf776e89b91b51c199ba2e6877081511ebfab03c0d60d2a5e1c');
+putenv('WL_INTEGRATION_OPERATION_SHA=0a1f6e9b48e46db49032568b1baf5de17e887b508362e446454968dbfe0834a2');
 putenv( 'WL_INTEGRATION_RESULT_SHA=' . INTEGRATION_RESULT_SHA );
 $total = 0; $failures = 0;
 function integration_expect( $condition ) { if ( ! $condition ) { throw new RuntimeException( 'Sanitized composed integration assertion failed.' ); } }

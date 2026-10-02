@@ -9,7 +9,7 @@ namespace WPGraphQL\WooCommerce\Utils;
 final class Cart_Session_Lifecycle {
 
 	private const SOURCE_COHORT = [
-		'WPGraphQL\\WooCommerce\\Utils\\QL_Session_Handler' => '38d929e5c2aaac50e753f8d5f7ff097c70816d8a09660cbe0d77118c58308fc3',
+		'WPGraphQL\\WooCommerce\\Utils\\QL_Session_Handler' => 'e17eea7a864614e03dfcff639385f102e1148176b1fa281f81e48ae3fd06b470',
 		'WP_Hook' => 'b839c0e5672246bca8db1ab781ec8835f7732f253c375a237cbf6ec536e8d12e',
 		'WPGraphQL\\Router' => '4c85426fdc7223c69358ed70e68ba45e4c5f632a4234f860ebba41d68ec32ea7',
 		'WC_Customer' => '14ca0da46d63445e72053cba79fad368393490e7bf416e53936eeb17c579a452',
@@ -17,20 +17,49 @@ final class Cart_Session_Lifecycle {
 		'WC_Cart_Session' => '5e871b805ec488e7b1497e33eb83d43334ebd33c1f5feaa670deb2dfa12dd25e',
 	];
 	private const ORIGIN_SOURCE_COHORT = [
-		'WPGraphQL\\WooCommerce\\Utils\\Cart_Session_Operation' => '4091afb3ad9dddf776e89b91b51c199ba2e6877081511ebfab03c0d60d2a5e1c',
-		'WPGraphQL\\WooCommerce\\Mutation\\Checkout' => 'a242fc8acb7f53b7939e24eff7f8fa6a32758ee8f68a3547756b9bc5d97a1708',
-		'WPGraphQL\\WooCommerce\\Data\\Mutation\\Checkout_Mutation' => '501f228900e4a356c6cc64b476f614dc43f19c42a3480805a0b65a2f1c022a09',
+		'WPGraphQL\\WooCommerce\\Utils\\Cart_Session_Operation' => '0a1f6e9b48e46db49032568b1baf5de17e887b508362e446454968dbfe0834a2',
+		'WPGraphQL\\WooCommerce\\Mutation\\Checkout' => '18516e37a4c65538426a52d7c12ce9f4b7a99299e585f30cf3b257cd0ae615ac',
+		'WPGraphQL\\WooCommerce\\Data\\Mutation\\Checkout_Mutation' => 'd86c544a0c5f2998c9f1c0de7e6a6f8598760e1060ee490cdfdb71444dd0dd56',
 		'WPGraphQL\\Type\\WPMutationType' => '33bfcaeec264a56c94367a9d49dfa61d1e9f21d24acfe903adca9fc4295207e7',
 		'WPGraphQL\\Utils\\InstrumentSchema' => '6f3bf9d2bd1b49798a0adc22aa843b8f5b74e89f73ebcb91916ea12957ba529c',
 	];
 	private const RESPONSE_SOURCE_COHORT = [
 		'GraphQL\\Executor\\ExecutionResult' => '899f37cf608b43eddba734604ba301e178b02f7bf12edf0b8b920b4053435fd9',
 	];
+	private const CREATION_SOURCE_COHORT = [
+		'WP_User' => 'a6330b51ec04dbfe0b968a1130148aedb63e28b64fc533f24c1da563e11d5fe2',
+		'function:wp_validate_auth_cookie' => '3a2482a65b50d62ebae75a728be98b78985d3a3f5a3e007cb2d0c1338bf05777',
+		'function:wp_insert_user' => 'c837321fbf722f89a080324f3c742b0c44e5853c9bd6d305cb894b5f664fc6cc',
+		'function:wp_set_current_user' => '3a2482a65b50d62ebae75a728be98b78985d3a3f5a3e007cb2d0c1338bf05777',
+		'function:wp_set_auth_cookie' => '3a2482a65b50d62ebae75a728be98b78985d3a3f5a3e007cb2d0c1338bf05777',
+		'function:wp_generate_auth_cookie' => '3a2482a65b50d62ebae75a728be98b78985d3a3f5a3e007cb2d0c1338bf05777',
+		'function:wc_create_new_customer' => '3443eb7b280e7c1806592b8574e0a4d64aba962c21c7306480a3751b46c1387d',
+		'function:wc_set_customer_auth_cookie' => '3443eb7b280e7c1806592b8574e0a4d64aba962c21c7306480a3751b46c1387d',
+		'WPGraphQL\\AppContext' => 'ddf6a8696e7e134452e6de07f11f8168dd45da70d81529c5829ccce7a43480b3',
+		'WPGraphQL\\Data\\Loader\\AbstractDataLoader' => '2608a64e9a4d41c0ffd5883fb49636b2301204ab133e4aa6ac5f175a4a09c93c',
+		'WP_Session_Tokens' => '0708de7171949675139eda1e476935763f65e8a3a0cf40fc534dfffa00fb04cb',
+		'WP_User_Meta_Session_Tokens' => 'bd32717507322f0e15234d546c4938c8e2d092d7166d4055f8ec6815ed09daa8',
+		'WC_Checkout' => 'be61337296f7e69544acbb61bb6ffa0f895b52b896ed7565bb12f91b117b5642',
+		'WC_Order' => 'b00e1aef43fca2f4c173c59ceaaac2aa1954cf666836e4fc3deed837434a7d41',
+		'WC_Abstract_Order' => '59a07e58b30a198491977da76cbff3c01f497fc09f5fdac818c6806fdc3b2ff6',
+		'WC_Data_Store' => 'e7b9c236bb0d879c5388ba7bfe0ff0afb7775c085422d33e6206481a32178f43',
+		'WC_Order_Data_Store_CPT' => '1f1b0e4523c53a13c0b04be74300f76e8c79180d5d23fc123ddbaf95ed180192',
+	];
 	private const OWN_CALLBACKS = [
 		'graphql_process_http_request_response' => 'send_response',
 		'graphql_response_headers_to_send' => 'send_early_auth_response',
 		'graphql_authentication_error_status_code' => 'capture_auth_error',
 		'woocommerce_cart_session_initialize' => 'capture_cart_session',
+		'woocommerce_new_customer_data' => 'guard_checkout_customer_data',
+		'secure_auth_cookie' => 'capture_secure_auth', 'secure_logged_in_cookie' => 'capture_secure_logged_in',
+		'set_auth_cookie' => 'capture_auth_cookie', 'set_logged_in_cookie' => 'capture_logged_in_cookie',
+		'send_auth_cookies' => 'capture_send_auth_cookies', 'session_token_manager' => 'guard_session_token_manager',
+		'woocommerce_create_order' => 'guard_checkout_create_order',
+		'woocommerce_resume_order' => 'guard_checkout_resume_order',
+		'woocommerce_checkout_create_order' => 'capture_checkout_order',
+		'woocommerce_new_order' => 'bind_checkout_order',
+		'woocommerce_before_order_object_save' => 'checkout_order_saving',
+		'woocommerce_after_order_object_save' => 'checkout_order_saved',
 	];
 	private const COHORT_HOOKS = [
 		'all', 'graphql_process_http_request_response', 'graphql_response_headers_to_send',
@@ -38,6 +67,18 @@ final class Cart_Session_Lifecycle {
 		'woocommerce_cart_session_initialize',
 		'graphql_mutation_input', 'graphql_pre_mutate_and_get_payload',
 		'graphql_mutation_payload', 'graphql_mutation_response',
+		'woocommerce_new_customer_data', 'woocommerce_register_post', 'woocommerce_registration_errors',
+		'woocommerce_created_customer', 'wp_pre_insert_user_data', 'insert_user_meta', 'insert_custom_user_meta',
+		'user_register', 'set_user_role', 'add_user_role', 'added_user_meta', 'updated_user_meta',
+		'auth_cookie_expiration', 'secure_auth_cookie', 'secure_logged_in_cookie', 'auth_cookie',
+		'set_auth_cookie', 'set_logged_in_cookie', 'send_auth_cookies', 'set_current_user', 'session_token_manager',
+		'auth_cookie_valid', 'auth_cookie_malformed', 'auth_cookie_bad_username', 'auth_cookie_bad_hash', 'auth_cookie_bad_session_token', 'auth_cookie_expired',
+		'woocommerce_create_order', 'woocommerce_resume_order', 'woocommerce_checkout_customer_id',
+		'woocommerce_checkout_create_order', 'woocommerce_new_order', 'woocommerce_before_order_object_save', 'woocommerce_after_order_object_save',
+		'woocommerce_checkout_order_exception', 'woocommerce_checkout_order_created', 'woocommerce_checkout_update_order_meta',
+		'woocommerce_pre_payment_complete', 'woocommerce_valid_order_statuses_for_payment_complete',
+		'woocommerce_payment_complete', 'woocommerce_payment_complete_order_status',
+		'woocommerce_checkout_order_processed', 'graphql_woocommerce_after_checkout',
 	];
 	private $handler;
 	private $boundary;
@@ -53,11 +94,14 @@ final class Cart_Session_Lifecycle {
 	private $sources;
 	private $receivers = [];
 	private $frozen;
+	private $creation_context;
+	private $creation_loaders;
+	private $cookie_capsule;
 
 	public function __construct( QL_Session_Handler $handler, string $credential_header, array $owned_cookie_names ) {
 		$this->handler = $handler;
 		$this->sources = defined( 'WOOGRAPHQL_CART_SESSION_SOURCE_COHORT' )
-			? WOOGRAPHQL_CART_SESSION_SOURCE_COHORT : array_merge( self::SOURCE_COHORT, self::ORIGIN_SOURCE_COHORT, self::RESPONSE_SOURCE_COHORT );
+			? WOOGRAPHQL_CART_SESSION_SOURCE_COHORT : array_merge( self::SOURCE_COHORT, self::ORIGIN_SOURCE_COHORT, self::RESPONSE_SOURCE_COHORT, self::CREATION_SOURCE_COHORT );
 		$this->manifest = defined( 'WOOGRAPHQL_CART_SESSION_CALLBACK_COHORT' )
 			? WOOGRAPHQL_CART_SESSION_CALLBACK_COHORT : [];
 		$this->boundary = new Cart_Session_HTTP_Boundary( [ $this, 'cleanup' ], [ $credential_header ], $owned_cookie_names );
@@ -70,7 +114,8 @@ final class Cart_Session_Lifecycle {
 	private function qualified_source( string $class ): void {
 		try {
 			$expected = is_array( $this->sources ) ? ( $this->sources[ $class ] ?? null ) : null;
-			$file = ( new \ReflectionClass( $class ) )->getFileName();
+			$file = str_starts_with( $class, 'function:' )
+				? ( new \ReflectionFunction( substr( $class, 9 ) ) )->getFileName() : ( new \ReflectionClass( $class ) )->getFileName();
 			if ( ! is_string( $expected ) || ! preg_match( '/\A[a-f0-9]{64}\z/D', $expected )
 				|| ! $file || ! hash_equals( $expected, hash_file( 'sha256', $file ) ) ) {
 				$this->reject();
@@ -95,6 +140,16 @@ final class Cart_Session_Lifecycle {
 		add_action( 'wp_loaded', [ $this, 'guard_created_objects' ], PHP_INT_MIN, 0 );
 		add_action( 'woocommerce_init', [ $this, 'guard_created_objects' ], PHP_INT_MAX, 0 );
 		add_filter( 'graphql_authentication_error_status_code', [ $this, 'capture_auth_error' ], PHP_INT_MAX, 2 );
+		foreach ( [ 'woocommerce_new_customer_data' => [ 'guard_checkout_customer_data', 1 ],
+			'secure_auth_cookie' => [ 'capture_secure_auth', 2 ], 'secure_logged_in_cookie' => [ 'capture_secure_logged_in', 3 ],
+			'set_auth_cookie' => [ 'capture_auth_cookie', 6 ], 'set_logged_in_cookie' => [ 'capture_logged_in_cookie', 6 ],
+			'send_auth_cookies' => [ 'capture_send_auth_cookies', 6 ], 'session_token_manager' => [ 'guard_session_token_manager', 1 ],
+			'woocommerce_create_order' => [ 'guard_checkout_create_order', 2 ], 'woocommerce_resume_order' => [ 'guard_checkout_resume_order', 1 ],
+			'woocommerce_checkout_create_order' => [ 'capture_checkout_order', 2 ], 'woocommerce_new_order' => [ 'bind_checkout_order', 2 ],
+			'woocommerce_after_order_object_save' => [ 'checkout_order_saved', 2 ] ] as $hook => [ $method, $arguments ] ) {
+			add_filter( $hook, [ $this, $method ], PHP_INT_MAX, $arguments );
+		}
+		add_action( 'woocommerce_before_order_object_save', [ $this, 'checkout_order_saving' ], PHP_INT_MIN, 2 );
 		$this->arm_terminals();
 		add_action( 'shutdown', [ $this, 'abort_at_shutdown' ], PHP_INT_MIN, 0 );
 		$this->cohort( false );
@@ -113,9 +168,13 @@ final class Cart_Session_Lifecycle {
 		if ( 'all' !== $hook && [ $this, 'guard_cohort_entry' ] === $callback ) {
 			return PHP_INT_MIN === $priority && 1 === $arguments;
 		}
+		if ( 'woocommerce_before_order_object_save' === $hook && [ $this, 'checkout_order_saving' ] === $callback ) {
+			return PHP_INT_MIN === $priority && 2 === $arguments;
+		}
 		if ( isset( self::OWN_CALLBACKS[ $hook ] ) && [ $this, self::OWN_CALLBACKS[ $hook ] ] === $callback ) {
-			$expected = 'graphql_process_http_request_response' === $hook ? 6
-				: ( in_array( $hook, [ 'graphql_authentication_error_status_code', 'woocommerce_cart_session_initialize' ], true ) ? 2 : 1 );
+			$expected = in_array( $hook, [ 'set_auth_cookie', 'set_logged_in_cookie', 'send_auth_cookies' ], true ) ? 6
+				: ( 'secure_logged_in_cookie' === $hook ? 3 : ( in_array( $hook, [ 'secure_auth_cookie', 'woocommerce_create_order', 'woocommerce_checkout_create_order', 'woocommerce_new_order', 'woocommerce_after_order_object_save' ], true ) ? 2 : ( 'graphql_process_http_request_response' === $hook ? 6
+				: ( in_array( $hook, [ 'graphql_authentication_error_status_code', 'woocommerce_cart_session_initialize' ], true ) ? 2 : 1 ) ) ) );
 			return PHP_INT_MAX === $priority && $expected === $arguments;
 		}
 		if ( 'graphql_response_headers_to_send' === $hook
@@ -132,9 +191,11 @@ final class Cart_Session_Lifecycle {
 
 	/** Explicit installation records pin location, signature, effects and receiver. */
 	private function qualified_callback( string $hook, $callback, int $priority, int $arguments ): bool {
+		if ( 'woocommerce_before_order_object_save' === $hook && PHP_INT_MIN === $priority ) { return false; }
 		foreach ( $this->manifest as $index => $record ) {
 			if ( ! is_array( $record ) || ( $record['hook'] ?? null ) !== $hook
 				|| ( $record['priority'] ?? null ) !== $priority || ( $record['accepted_args'] ?? null ) !== $arguments
+				|| ( 'woocommerce_checkout_order_exception' === $hook && true !== ( $record['preserves_created_order'] ?? null ) )
 				|| true !== ( $record['stable_registry'] ?? null ) || true !== ( $record['nonstreaming'] ?? null ) ) { continue; }
 			try {
 				$receiver = null;
@@ -259,6 +320,169 @@ final class Cart_Session_Lifecycle {
 		if ( $property->getValue( $this->cart_session ) !== $this->cart ) { $this->reject(); }
 	}
 
+	/** No pending loader work may retain the guest across the identity replacement. */
+	private function checked_checkout_loaders( $context ): array {
+		if ( ! $context instanceof \WPGraphQL\AppContext || get_class( $context ) !== \WPGraphQL\AppContext::class ) { $this->reject(); }
+		$this->qualified_source( \WPGraphQL\AppContext::class );
+		$this->qualified_source( \WPGraphQL\Data\Loader\AbstractDataLoader::class );
+		$loaders = $context->loaders;
+		if ( ! is_array( $loaders ) ) { $this->reject(); }
+		$buffer = new \ReflectionProperty( \WPGraphQL\Data\Loader\AbstractDataLoader::class, 'buffer' );
+		foreach ( $loaders as $loader ) {
+			if ( ! $loader instanceof \WPGraphQL\Data\Loader\AbstractDataLoader || [] !== $buffer->getValue( $loader ) ) { $this->reject(); }
+			$this->qualified_source( get_class( $loader ) );
+		}
+		return $loaders;
+	}
+
+	public function qualify_checkout_creation( $context ): void {
+		$this->assert_objects(); $this->assert_checkout_origin_boundary();
+		if ( null !== $this->creation_context || ! function_exists( 'is_multisite' ) || is_multisite() ) { $this->reject(); }
+		foreach ( [ 'wc_create_new_customer', 'wp_insert_user', 'wc_set_customer_auth_cookie', 'wp_set_current_user',
+			'wp_set_auth_cookie', 'wp_generate_auth_cookie', 'wp_validate_auth_cookie' ] as $function ) { $this->qualified_source( 'function:' . $function ); }
+		foreach ( [ 'WP_User', 'WP_Session_Tokens', 'WP_User_Meta_Session_Tokens', 'WC_Checkout', 'WC_Order', 'WC_Abstract_Order', 'WC_Data_Store', 'WC_Order_Data_Store_CPT' ] as $class ) { $this->qualified_source( $class ); }
+		$this->creation_loaders = $this->checked_checkout_loaders( $context ); $this->creation_context = $context;
+	}
+
+	public function guard_checkout_customer_data( $data ) {
+		$this->require_tail( 'woocommerce_new_customer_data', 'guard_checkout_customer_data' );
+		if ( ! $this->handler->has_checkout_creation() ) { return $data; }
+		if ( ! is_array( $data ) || 'customer' !== ( $data['role'] ?? null )
+			|| array_diff( array_keys( $data ), [ 'first_name', 'last_name', 'source', 'user_login', 'user_pass', 'user_email', 'role' ] ) ) { $this->reject(); }
+		foreach ( $data as $value ) { if ( ! is_string( $value ) ) { $this->reject(); } }
+		return $data;
+	}
+
+	public function arm_checkout_cookie_capsule( int $user_id ): void {
+		$this->cohort( false );
+		if ( null !== $this->cookie_capsule || null === $this->creation_context || $user_id <= 0 ) { $this->reject(); }
+		$user = get_userdata( $user_id );
+		if ( ! $user instanceof \WP_User || [ 'customer' ] !== array_values( $user->roles ) || [ 'customer' => true ] !== $user->caps ) { $this->reject(); }
+		$this->cookie_capsule = (object) [ 'user_id' => $user_id, 'secure_auth' => null, 'secure_logged_in' => null,
+			'auth' => null, 'logged_in' => null, 'send' => null, 'consumed' => false ];
+	}
+
+	public function guard_session_token_manager( $class ) {
+		$this->require_tail( 'session_token_manager', 'guard_session_token_manager' );
+		if ( $this->handler->has_checkout_creation() && 'WP_User_Meta_Session_Tokens' !== $class ) { $this->reject(); }
+		return $class;
+	}
+
+	public function capture_secure_auth( $secure, $id ) {
+		$this->require_tail( 'secure_auth_cookie', 'capture_secure_auth' );
+		if ( ! $this->cookie_capsule ) { return $secure; }
+		if ( $id !== $this->cookie_capsule->user_id || ! is_bool( $secure ) || null !== $this->cookie_capsule->secure_auth ) { $this->reject(); }
+		$this->cookie_capsule->secure_auth = $secure; return $secure;
+	}
+	public function capture_secure_logged_in( $secure, $id, $auth_secure ) {
+		$this->require_tail( 'secure_logged_in_cookie', 'capture_secure_logged_in' );
+		if ( ! $this->cookie_capsule ) { return $secure; }
+		if ( $id !== $this->cookie_capsule->user_id || ! is_bool( $secure ) || null !== $this->cookie_capsule->secure_logged_in
+			|| $auth_secure !== $this->cookie_capsule->secure_auth ) { $this->reject(); }
+		$this->cookie_capsule->secure_logged_in = $secure; return $secure;
+	}
+	private function capture_cookie( string $slot, $cookie, $expire, $expiration, $id, $scheme, $token ): void {
+		$c = $this->cookie_capsule;
+		if ( ! $c ) { return; }
+		if ( $c->consumed || null !== $c->$slot || $id !== $c->user_id || ! is_string( $cookie ) || '' === $cookie
+			|| preg_match( '/[\r\n\x00]/', $cookie ) || ! is_int( $expire ) || ! is_int( $expiration )
+			|| $expiration <= time() || $expire <= $expiration || ! is_string( $token ) || '' === $token
+			|| ( 'auth' === $slot ? ( $c->secure_auth ? 'secure_auth' : 'auth' ) : 'logged_in' ) !== $scheme ) { $this->reject(); }
+		$c->$slot = [ $cookie, $expire, $expiration, $id, $scheme, $token ];
+		if ( 'logged_in' === $slot && ( ! $c->auth || array_slice( $c->auth, 1, 3 ) !== [ $expire, $expiration, $id ] || $c->auth[5] !== $token ) ) { $this->reject(); }
+	}
+	public function capture_auth_cookie( $cookie, $expire, $expiration, $id, $scheme, $token ): void {
+		$this->require_tail( 'set_auth_cookie', 'capture_auth_cookie' ); $this->capture_cookie( 'auth', $cookie, $expire, $expiration, $id, $scheme, $token );
+	}
+	public function capture_logged_in_cookie( $cookie, $expire, $expiration, $id, $scheme, $token ): void {
+		$this->require_tail( 'set_logged_in_cookie', 'capture_logged_in_cookie' ); $this->capture_cookie( 'logged_in', $cookie, $expire, $expiration, $id, $scheme, $token );
+	}
+	public function capture_send_auth_cookies( $send, $expire = null, $expiration = null, $id = null, $scheme = null, $token = null ) {
+		$this->require_tail( 'send_auth_cookies', 'capture_send_auth_cookies' );
+		$c = $this->cookie_capsule; if ( ! $c ) { return $send; }
+		if ( 6 !== func_num_args() || null !== $c->send || ! is_bool( $send ) || ! $c->auth || ! $c->logged_in
+			|| array_slice( $c->auth, 1 ) !== [ $expire, $expiration, $id, $scheme, $token ] ) { $this->reject(); }
+		$c->send = $send; return false;
+	}
+	public function consume_checkout_cookie_capsule(): bool {
+		$this->cohort( false ); $c = $this->cookie_capsule;
+		if ( ! $c || $c->consumed || true !== $c->send || ! is_bool( $c->secure_auth ) || ! is_bool( $c->secure_logged_in ) ) { $this->reject(); }
+		if ( $c->user_id !== wp_validate_auth_cookie( $c->auth[0], $c->auth[4] )
+			|| $c->user_id !== wp_validate_auth_cookie( $c->logged_in[0], 'logged_in' ) ) { $this->reject(); }
+		$this->cohort( false );
+		$c->consumed = true; return true;
+	}
+	public function adopt_checkout_customer( $context ): void {
+		if ( $context !== $this->creation_context || $this->checked_checkout_loaders( $context ) !== $this->creation_loaders
+			|| ! $this->cookie_capsule || ! $this->cookie_capsule->consumed ) { $this->reject(); }
+		$this->cohort( false );
+		$customer = new \WC_Customer( $this->cookie_capsule->user_id, true );
+		$this->copy_checkout_customer_addresses( $this->customer, $customer );
+		if ( $customer->get_id() !== $this->cookie_capsule->user_id ) { $this->reject(); }
+		\WC()->customer = $customer; $this->customer = $customer;
+		$context->viewer = wp_get_current_user();
+		foreach ( $this->creation_loaders as $loader ) { $loader->clear_all(); }
+		$this->assert_objects();
+	}
+	/** Only checkout addresses survive the guest/account session identity boundary. */
+	private function copy_checkout_customer_addresses( \WC_Customer $guest, \WC_Customer $customer ): void {
+		// Native session read intentionally rejects the old guest ID. Carry only the
+		// validated address values on the captured guest customer, never its identity.
+		$addresses = [ 'billing' => $guest->get_billing( 'edit' ), 'shipping' => $guest->get_shipping( 'edit' ) ];
+		foreach ( $addresses as $type => $address ) {
+			foreach ( [ 'first_name', 'last_name', 'company', 'address_1', 'address_2', 'city', 'state', 'postcode', 'country', 'email', 'phone' ] as $field ) {
+				$setter = "set_{$type}_{$field}";
+				if ( array_key_exists( $field, $address ) && is_callable( [ $customer, $setter ] ) ) { $customer->$setter( $address[ $field ] ); }
+			}
+		}
+	}
+
+	public function guard_checkout_create_order( $id, $checkout ) {
+		$this->require_tail( 'woocommerce_create_order', 'guard_checkout_create_order' );
+		if ( $this->handler->protects_checkout_order() && ( null !== $id || $checkout !== \WC()->checkout ) ) { $this->reject(); }
+		return $id;
+	}
+	public function guard_checkout_resume_order( $id ): void {
+		$this->require_tail( 'woocommerce_resume_order', 'guard_checkout_resume_order' );
+		if ( $this->handler->protects_checkout_order() ) { $this->reject(); }
+	}
+	public function capture_checkout_order( $order, $data ): void {
+		$this->require_tail( 'woocommerce_checkout_create_order', 'capture_checkout_order' );
+		if ( $this->handler->protects_checkout_order() ) {
+			$store = $order instanceof \WC_Order ? $order->get_data_store() : null;
+			if ( ! $store instanceof \WC_Data_Store || get_class( $store ) !== 'WC_Data_Store' || 'WC_Order_Data_Store_CPT' !== $store->get_current_class_name() ) { $this->reject(); }
+			$this->qualified_source( 'WC_Data_Store' ); $this->qualified_source( 'WC_Order_Data_Store_CPT' );
+		}
+		$this->handler->capture_checkout_order( $order, $data );
+	}
+	public function bind_checkout_order( $id, $order ): void {
+		$this->require_tail( 'woocommerce_new_order', 'bind_checkout_order' ); $this->handler->bind_checkout_order( $id, $order );
+	}
+	public function checkout_order_saving( $order, $store ): void {
+		$this->cohort( false ); $this->handler->checkout_order_saving( $order, $store );
+	}
+	public function checkout_order_saved( $order, $store ): void {
+		$this->require_tail( 'woocommerce_after_order_object_save', 'checkout_order_saved' ); $this->handler->checkout_order_saved( $order, $store );
+	}
+	public function flush_empty_checkout_cart(): void {
+		$this->assert_objects();
+		if ( ! $this->handler->protects_checkout_order() || ! $this->cart->is_empty() ) { $this->reject(); }
+		$this->cart_session->destroy_cart_session(); $this->assert_objects();
+	}
+	private function checkout_cookie_batch(): array {
+		$c = $this->cookie_capsule;
+		if ( ! $c || ! $c->consumed || true !== $c->send ) { $this->reject(); }
+		foreach ( [ 'AUTH_COOKIE', 'SECURE_AUTH_COOKIE', 'LOGGED_IN_COOKIE', 'PLUGINS_COOKIE_PATH', 'ADMIN_COOKIE_PATH', 'COOKIEPATH', 'SITECOOKIEPATH', 'COOKIE_DOMAIN' ] as $constant ) {
+			if ( ! defined( $constant ) || ! is_string( constant( $constant ) ) ) { $this->reject(); }
+		}
+		$auth_name = $c->secure_auth ? SECURE_AUTH_COOKIE : AUTH_COOKIE;
+		$batch = [ [ $auth_name, $c->auth[0], $c->auth[1], PLUGINS_COOKIE_PATH, COOKIE_DOMAIN, $c->secure_auth, true ],
+			[ $auth_name, $c->auth[0], $c->auth[1], ADMIN_COOKIE_PATH, COOKIE_DOMAIN, $c->secure_auth, true ],
+			[ LOGGED_IN_COOKIE, $c->logged_in[0], $c->logged_in[1], COOKIEPATH, COOKIE_DOMAIN, $c->secure_logged_in, true ] ];
+		if ( COOKIEPATH !== SITECOOKIEPATH ) { $batch[] = [ LOGGED_IN_COOKIE, $c->logged_in[0], $c->logged_in[1], SITECOOKIEPATH, COOKIE_DOMAIN, $c->secure_logged_in, true ]; }
+		return $batch;
+	}
+
 	/** Exact known writers only; preserve every unrelated object and callback. */
 	public function close_writers(): void {
 		$writers = [ [ $this->handler, 'save_data', 'shutdown' ] ];
@@ -372,7 +596,19 @@ final class Cart_Session_Lifecycle {
 			// data or any token already serialized by an earlier sibling field.
 			$this->boundary->discard( [ 'errors' => $this->rejected_response_errors( $response ) ], $status );
 		}
-		$this->boundary->complete( $response, function (): void {
+		if ( $this->handler->has_checkout_creation() ) {
+			$plain = $response;
+			if ( is_object( $plain ) ) {
+				if ( get_class( $plain ) !== \GraphQL\Executor\ExecutionResult::class ) { $this->reject(); }
+				$this->qualified_source( \GraphQL\Executor\ExecutionResult::class );
+				try { $plain = $plain->toArray(); } catch ( \Throwable $error ) { $this->reject(); }
+				$this->handler->assert_response_available();
+				$this->require_tail( 'graphql_process_http_request_response', 'send_response' );
+			}
+			if ( ! is_array( $plain ) || ! empty( $plain['errors'] ) ) { $this->reject(); }
+			$response = $plain;
+		}
+		$this->boundary->complete( $response, function () {
 			if ( $this->handler->is_auth_detached() ) {
 				$this->close_writers(); $this->terminal = true; return;
 			}
@@ -388,6 +624,7 @@ final class Cart_Session_Lifecycle {
 			$this->handler->complete_owned_scope();
 			$this->handler->assert_response_available();
 			$this->terminal = true;
+			return $this->handler->has_checkout_creation() ? $this->checkout_cookie_batch() : null;
 		}, $status );
 	}
 }

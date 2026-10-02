@@ -28,6 +28,7 @@ final class Cart_Session_Storage {
 	private $transfer_source_id;
 	private $options_table;
 	private $creation_record;
+	private $checkout_order_record;
 
 	/** The caller must already have verified the credential and account binding. */
 	public function __construct( $customer_id, $session_table, $bound_user_id = 0 ) {
@@ -118,7 +119,8 @@ final class Cart_Session_Storage {
 	}
 
 	private function assert_data_access() {
-		if ( ( null !== $this->creation_record && ! $this->creation_record->commit_acknowledged )
+		if ( ( null !== $this->checkout_order_record && $this->checkout_order_record->busy )
+			|| ( null !== $this->creation_record && ! $this->creation_record->commit_acknowledged )
 			|| ( null !== $this->transfer_source_id && 'committed' !== $this->transfer_record->phase ) ) {
 			$this->fail();
 		}
@@ -287,6 +289,7 @@ final class Cart_Session_Storage {
 	}
 
 	public function seal() {
+		if ( null !== $this->checkout_order_record && $this->checkout_order_record->busy ) { $this->fail(); }
 		if ( null !== $this->transfer_source_id && 'pending' === $this->transfer_record->phase ) {
 			$this->fail();
 		}
@@ -467,6 +470,89 @@ final class Cart_Session_Storage {
 		}
 	}
 
+	private function checkout_order_bytes( $state, $order_id ) {
+		return json_encode( [ 'schema' => 1, 'kind' => 'checkout_order_attempt',
+			'destination_tuple_sha256' => $this->tuple_hash( $this->customer_id ),
+			'operation_uuid' => $this->creation_record->uuid, 'state' => $state, 'order_id' => $order_id ],
+			JSON_THROW_ON_ERROR | JSON_UNESCAPED_SLASHES );
+	}
+
+	/** Canonical fixed-row fence, read before authenticated session/account hydration. */
+	public function read_checkout_order_attempt( $options_table ) {
+		try {
+			$this->assert_active();
+			if ( $this->user_id <= 0 ) { $this->fail(); }
+			$this->pin_options_table( $options_table );
+			$row = $this->transfer_read( 'SELECT option_value, autoload FROM %i WHERE option_name = %s',
+				[ $this->options_table, 'wl_checkout_order_v1_' . $this->tuple_hash( $this->customer_id ) ], 'get_row' );
+			if ( null === $row ) { return false; }
+			if ( ! is_object( $row ) || ! isset( $row->option_value, $row->autoload ) || 'no' !== $row->autoload ) { $this->fail(); }
+			$value = $row->option_value;
+			if ( ! is_string( $value ) ) { $this->fail(); }
+			$marker = json_decode( $value, true, 8, JSON_THROW_ON_ERROR );
+			if ( ! is_array( $marker ) || array_keys( $marker ) !== [ 'schema', 'kind', 'destination_tuple_sha256', 'operation_uuid', 'state', 'order_id' ]
+				|| 1 !== $marker['schema'] || 'checkout_order_attempt' !== $marker['kind']
+				|| $this->tuple_hash( $this->customer_id ) !== $marker['destination_tuple_sha256']
+				|| ! is_string( $marker['operation_uuid'] ) || ! preg_match( '/\A[a-f0-9]{8}-[a-f0-9]{4}-4[a-f0-9]{3}-[89ab][a-f0-9]{3}-[a-f0-9]{12}\z/D', $marker['operation_uuid'] )
+				|| ! in_array( $marker['state'], [ 'pending', 'complete' ], true ) || ! is_int( $marker['order_id'] )
+				|| $marker['order_id'] < 0 || ( 'complete' === $marker['state'] && 0 === $marker['order_id'] )
+				|| json_encode( $marker, JSON_THROW_ON_ERROR | JSON_UNESCAPED_SLASHES ) !== $value ) { $this->fail(); }
+			return $marker;
+		} catch ( \Throwable $error ) { $this->transfer_failure(); }
+	}
+
+	private function assert_checkout_order_authority( $expected ) {
+		$this->assert_active();
+		if ( null === $this->creation_record || ! $this->creation_record->commit_acknowledged
+			|| null === $this->transfer_source_id || 'committed' !== $this->transfer_record->phase
+			|| null === $this->checkout_order_record
+			|| $expected !== $this->checkout_order_record->order_id || $this->checkout_order_record->complete ) { $this->fail(); }
+		$this->assert_creation_reservation( $this->transfer_source_id );
+		$marker = $this->read_checkout_order_attempt( $this->options_table );
+		if ( ! is_array( $marker ) || $this->checkout_order_bytes( 'pending', $expected ) !== json_encode( $marker, JSON_THROW_ON_ERROR | JSON_UNESCAPED_SLASHES ) ) { $this->fail(); }
+		$this->qualify_transfer_tables();
+	}
+
+	private function checkout_order_cas( $before, $after ) {
+		$this->transfer_command( 'UPDATE %i SET option_value = %s WHERE option_name = %s AND BINARY option_value = BINARY %s AND autoload = %s',
+			[ $this->options_table, $after, 'wl_checkout_order_v1_' . $this->tuple_hash( $this->customer_id ), $before, 'no' ], 1 );
+	}
+
+	/** Same original creation-backed destination facade only; never resume from row ID. */
+	public function bind_checkout_order( int $order_id ) {
+		try {
+			if ( null === $this->checkout_order_record || $this->checkout_order_record->busy ) { $this->fail(); }
+			$this->checkout_order_record->busy = true;
+			$this->assert_checkout_order_authority( 0 );
+			if ( $order_id <= 0 ) { $this->fail(); }
+			$this->checkout_order_record->busy = true;
+			$this->transfer_command( 'START TRANSACTION', [], 0 );
+			$this->checkout_order_cas( $this->checkout_order_bytes( 'pending', 0 ), $this->checkout_order_bytes( 'pending', $order_id ) );
+			$this->transfer_command( 'COMMIT', [], 0 );
+			$this->checkout_order_record->order_id = $order_id; $this->checkout_order_record->busy = false;
+		} catch ( \Throwable $error ) { $this->transfer_failure(); }
+	}
+
+	/** Final empty destination session and completion fence commit atomically. */
+	public function complete_checkout_order( array $final_data, int $expiry ) {
+		try {
+			if ( null === $this->checkout_order_record || $this->checkout_order_record->busy ) { $this->fail(); }
+			$this->checkout_order_record->busy = true;
+			$id = $this->checkout_order_record->order_id ?? 0;
+			$this->assert_checkout_order_authority( $id );
+			if ( $id <= 0 || $expiry <= 0 || ! empty( $final_data['cart'] ) || ! empty( $final_data['order_awaiting_payment'] )
+				|| ! empty( $final_data['reload_checkout'] ) ) { $this->fail(); }
+			$this->checkout_order_record->busy = true;
+			$this->transfer_command( 'START TRANSACTION', [], 0 );
+			$this->transfer_command( 'UPDATE %i SET session_value = %s, session_expiry = %d WHERE session_key = %s',
+				[ $this->table, serialize( $final_data ), $expiry, $this->customer_id ], 1 );
+			$this->checkout_order_cas( $this->checkout_order_bytes( 'pending', $id ), $this->checkout_order_bytes( 'complete', $id ) );
+			$this->transfer_command( 'COMMIT', [], 0 );
+			$this->checkout_order_record->complete = true; $this->checkout_order_record->busy = false;
+			$this->evict_session_cache();
+		} catch ( \Throwable $error ) { $this->transfer_failure(); }
+	}
+
 	private function new_operation_uuid() {
 		$bytes = random_bytes( 16 );
 		$bytes[6] = chr( ( ord( $bytes[6] ) & 15 ) | 64 );
@@ -602,6 +688,7 @@ final class Cart_Session_Storage {
 					[ $options_table, 'wl_cart_retired_v1_' . $this->tuple_hash( $this->customer_id ) ], 'get_var' ) ) {
 				$this->fail();
 			}
+			if ( null !== $destination->creation_record && false !== $destination->read_checkout_order_attempt( $options_table ) ) { $destination->fail(); }
 			$destination->transfer_command( 'START TRANSACTION', [], 0 );
 			$destination->transfer_record->phase = 'pending';
 			$destination->transfer_command( 'INSERT INTO %i (`session_key`, `session_value`, `session_expiry`) VALUES (%s, %s, %d)',
@@ -610,6 +697,11 @@ final class Cart_Session_Storage {
 				'destination_tuple_sha256' => $this->tuple_hash( (string) $new_user_id ), 'operation_uuid' => $this->transfer_record->uuid ];
 			$destination->transfer_command( 'INSERT INTO %i (`option_name`, `option_value`, `autoload`) VALUES (%s, %s, %s)',
 				[ $options_table, 'wl_cart_retired_v1_' . $marker['source_tuple_sha256'], json_encode( $marker, JSON_THROW_ON_ERROR | JSON_UNESCAPED_SLASHES ), 'no' ], 1 );
+			if ( null !== $destination->creation_record ) {
+				$destination->checkout_order_record = (object) [ 'order_id' => 0, 'busy' => false, 'complete' => false ];
+				$destination->transfer_command( 'INSERT INTO %i (`option_name`, `option_value`, `autoload`) VALUES (%s, %s, %s)',
+					[ $options_table, 'wl_checkout_order_v1_' . $destination->tuple_hash( (string) $new_user_id ), $destination->checkout_order_bytes( 'pending', 0 ), 'no' ], 1 );
+			}
 			return $destination;
 		} catch ( \Throwable $error ) {
 			if ( $destination ) {

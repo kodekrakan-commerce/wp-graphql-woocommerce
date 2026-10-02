@@ -101,19 +101,19 @@ function operation_cases() {
 			op_transition( $result ); op_no_callbacks(); op_detached_clean( $handler ); op_assert( 0 === get_current_user_id() );
 		};
 	}
-	$cases['final-input-account-held-before-pre-mutation'] = static function () {
+	$cases['eligible-final-account-input-passes-preflight-but-synthetic-origin-rejected'] = static function () {
 		[ $schema, $handler ] = operation_fixture();
 		add_filter( 'graphql_mutation_input', static function ( $input ) { $input['account'] = [ 'username' => 'synthetic' ]; return $input; }, PHP_INT_MAX, 1 );
-		add_filter( 'graphql_pre_mutate_and_get_payload', static function () { $GLOBALS['op_effects'][] = 'created-account'; $GLOBALS['op_effects'][] = 'order'; return null; }, 0, 1 );
+		add_filter( 'graphql_pre_mutate_and_get_payload', static function () { $GLOBALS['op_effects'][] = 'pre-mutation-observation'; return null; }, 0, 1 );
 		$result = \GraphQL\GraphQL::executeQuery( $schema, 'mutation{checkout(input:{}){success}}', null, new \WPGraphQL\AppContext() )->toArray();
-		op_transition( $result ); op_no_callbacks(); op_assert( ! $handler->detached && 0 === get_current_user_id() );
+		op_transition( $result ); op_assert( [ 'pre-mutation-observation' ] === $GLOBALS['op_effects'] ); op_assert( ! $handler->detached && 0 === get_current_user_id() );
 	};
-	$cases['dynamic-registration-policy-held-before-pre-mutation'] = static function () {
+	$cases['dynamic-policy-not-evaluated-by-preflight-and-synthetic-origin-rejected'] = static function () {
 		[ $schema ] = operation_fixture();
 		add_filter( 'graphql_mutation_input', static function ( $input ) { add_filter( 'woocommerce_checkout_registration_required', static fn() => true ); return $input; }, PHP_INT_MAX, 1 );
-		add_filter( 'graphql_pre_mutate_and_get_payload', static function () { $GLOBALS['op_effects'][] = 'created-account'; $GLOBALS['op_effects'][] = 'order'; return null; }, 0, 1 );
+		add_filter( 'graphql_pre_mutate_and_get_payload', static function () { $GLOBALS['op_effects'][] = 'pre-mutation-observation'; return null; }, 0, 1 );
 		$result = \GraphQL\GraphQL::executeQuery( $schema, 'mutation{checkout(input:{}){success}}', null, new \WPGraphQL\AppContext() )->toArray();
-		op_transition( $result ); op_no_callbacks();
+		op_transition( $result ); op_assert( [ 'pre-mutation-observation' ] === $GLOBALS['op_effects'] );
 	};
 	foreach ( [ 'mutation{login(input:{provider:PASSWORD}){authToken}}', 'mutation{checkout(input:{}){success}}' ] as $index => $query ) {
 		$cases['input-filter-identity-change-held-' . $index] = static function () use ( $query ) {

@@ -72,6 +72,7 @@ function owned_inert( $handler ): void {
 	$handler->set('cart','ignored'); $handler->cart='ignored'; unset($handler->cart); $handler->mark_dirty(); $handler->save_if_dirty(); $handler->save_data(); $handler->reload_data(); $handler->init_session_cookie(); $handler->init_session_token(); $handler->set_session_expiration(); $handler->init();
 	owned_expect( 'default' === $handler->get('cart','default') && false === $handler->build_token() && [] === $handler->add_prepared_session_header([]) );
 }
+if ( defined( 'WL_NATIVE_SAVE_BOOTSTRAP_ONLY' ) && true === WL_NATIVE_SAVE_BOOTSTRAP_ONLY ) { return; }
 $cases = [];
 $cases['lifecycle installs before key filter acquire and authoritative read'] = function () {
 	[ $h, $db ] = owned_start(); $events=array_column(HandlerContractBoundary::$events,'kind');
@@ -153,8 +154,8 @@ $cases['canonical retirement does not hide uncertain creation marker'] = functio
 	owned_marker_denial($h,$db,'WL_CART_SESSION_UNAVAILABLE');owned_expect(2===count($db->marker_reads));
 };
 $cases['account branch ignores guest markers and preserves cache hydration'] = function(){
-	[ $h,$db,$id ]=owned_fixture(17);foreach(['retirement','creation'] as $kind){[$key]=owned_marker($kind,$id);HandlerContractBoundary::$markers[$key]='{}';}$db->marker_last_error=true;
-	$h->init();$h->assert_session_ready();owned_expect([]===$db->marker_reads&&1===owned_count('db-read')&&1===owned_count('account-read')&&!$h->has_session_rejection());
+	[ $h,$db,$id ]=owned_fixture(17);foreach(['retirement','creation'] as $kind){[$key]=owned_marker($kind,$id);HandlerContractBoundary::$markers[$key]='{}';}
+	$h->init();$h->assert_session_ready();[$fence]=owned_order_marker('pending',0);owned_expect([$fence]===$db->marker_reads&&1===owned_count('db-read')&&1===owned_count('account-read')&&!$h->has_session_rejection());
 };
 $cases['fresh guest marker absences precede token issuance'] = function(){
 	[ $h,$db ]=owned_fixture(0,'absent');$h->init();$h->assert_session_ready();owned_prepare($h);$events=array_column(HandlerContractBoundary::$events,'kind');$markers=array_keys($events,'marker-read',true);
@@ -196,6 +197,34 @@ $cases['successful SQL with failed eviction keeps dirty and blocks response'] = 
 $cases['invalid rejection flag pure without scope and original code retained'] = function () { [ $h,$db ]=owned_fixture(0,'malformed'); $h->init(); $calls=count($db->calls); $events=count(HandlerContractBoundary::$events); owned_expect($h->has_session_rejection()&&!$h->has_owned_scope()); owned_expect($calls===count($db->calls)&&$events===count(HandlerContractBoundary::$events)); owned_error(fn()=>$h->assert_session_ready(),'WL_CART_SESSION_INVALID'); $h->assert_response_available(); };
 $cases['transition rejection flag retains abortable scope until explicit discard'] = function () { [ $h,$db ]=owned_start(); $h->set('cart','discard'); HandlerContractBoundary::$user=17; owned_error(fn()=>$h->assert_session_ready(),'WL_CART_SESSION_TRANSITION_INVALID'); $calls=count($db->calls); owned_expect($h->has_session_rejection()&&$h->has_owned_scope()&&$calls===count($db->calls)); $h->assert_response_available(); $h->discard_owned_scope(); owned_expect($h->has_session_rejection()&&!$h->has_owned_scope()&&1===owned_count('scope-abort')&&0===$db->writes); };
 $cases['unavailable and clean detached outcome never masquerade as ordinary rejection'] = function () { [ $h,$db ]=owned_start(); owned_expect(!$h->has_session_rejection()); $h->detach_for_auth(); owned_expect(!$h->has_session_rejection()); $db->report_failed=true; owned_error(fn()=>$h->assert_response_available()); $calls=count($db->calls); owned_expect(!$h->has_session_rejection()&&$calls===count($db->calls)); };
+
+
+function owned_order_marker( string $state, int $id ): array {
+ $input='';foreach([DB_NAME,'contract_woocommerce_sessions','17']as $part){$input.=strlen($part).':'.$part;}$hash=hash('sha256',$input);
+ return ['wl_checkout_order_v1_'.$hash,json_encode(['schema'=>1,'kind'=>'checkout_order_attempt','destination_tuple_sha256'=>$hash,'operation_uuid'=>'11111111-1111-4111-8111-111111111111','state'=>$state,'order_id'=>$id],JSON_THROW_ON_ERROR|JSON_UNESCAPED_SLASHES)];
+}
+foreach(['valid','absent'] as $credential){foreach([0,91]as $order_id){
+ $cases['authenticated pending '.$order_id.' with '.$credential.' header closes before hydration']=function()use($credential,$order_id){
+  [$h,$db]=owned_fixture(17,$credential);[$key,$value]=owned_order_marker('pending',$order_id);HandlerContractBoundary::$markers[$key]=$value;
+  $h->init();owned_error(fn()=>$h->assert_session_ready(),'WL_CART_SESSION_TRANSITION_INVALID');$h->assert_response_available();
+  owned_expect($h->has_session_rejection()&&!$h->has_owned_scope()&&'released'===$db->state&&[$key]===$db->marker_reads
+   &&0===$db->reads&&0===$db->writes&&0===owned_count('account-read')&&0===owned_count('token-built'));
+  owned_error(fn()=>$h->prepare_session_token(),'WL_CART_SESSION_TRANSITION_INVALID');$h->set('cart','ignored');$h->save_data();owned_expect(0===$db->writes);
+ };
+}}
+$cases['completed creation permits later ordinary authenticated admission and cart purchase writes']=function(){
+ [$h,$db]=owned_fixture(17,'absent');[$key,$value]=owned_order_marker('complete',91);HandlerContractBoundary::$markers[$key]=$value;
+ $h->init();$h->assert_session_ready();owned_expect($h->has_owned_scope()&&[$key]===$db->marker_reads&&1===owned_count('account-read'));
+ owned_prepare($h);$h->set('cart','later-independent-purchase');$h->complete_owned_scope();$h->assert_response_available();
+ owned_expect(HandlerContractBoundary::$markers[$key]===$value&&HandlerContractBoundary::$rows['17']['cart']==='later-independent-purchase'&&1===$db->writes);
+};
+foreach(['malformed','read-failure','last-error','ownership-failure']as $fault){
+ $cases['authenticated fence '.$fault.' is unavailable before account/session hydration']=function()use($fault){
+  [$h,$db]=owned_fixture(17,'absent');[$key,$value]=owned_order_marker('pending',0);HandlerContractBoundary::$markers[$key]='malformed'===$fault?'{':$value;
+  if('read-failure'===$fault){$db->marker_failure=$key;}if('last-error'===$fault){$db->marker_last_error=true;}if('ownership-failure'===$fault){$db->marker_post_failure=true;}
+  $h->init();owned_error(fn()=>$h->assert_session_ready());owned_error(fn()=>$h->assert_response_available());owned_expect(0===$db->reads&&0===$db->writes&&0===owned_count('account-read')&&0===owned_count('token-built'));
+ };
+}
 
 if ( isset($argv[1]) ) {
 	$index=(int)$argv[1]; $case=array_values($cases)[$index]??null; if(!$case){exit(2);} try{$case(); fwrite(STDOUT,"PASS\n");exit(0);}catch(Throwable $error){fwrite(STDERR,"FAIL: controlled component assertion or boundary failure.\n");exit(1);}
