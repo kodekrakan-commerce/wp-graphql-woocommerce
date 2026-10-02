@@ -1,13 +1,18 @@
 <?php
-/** Isolated-process offline contract runner. No WordPress/site/network bootstrap. */
+/** Isolated-process contract with actual handler/storage/interface and controlled lifecycle/WP/SQL/cache boundaries. No site/driver activation/HTTP acceptance. */
 
 error_reporting( E_ALL );
 ini_set( 'display_errors', '0' );
 
 $plugin_root = rtrim( getenv( 'WL_WOOGRAPHQL_SOURCE' ) ?: dirname( __DIR__, 2 ), '/' );
 $wc_root = rtrim( getenv( 'WL_WOOCOMMERCE_SOURCE' ) ?: '', '/' );
+$mu_root = rtrim( getenv( 'WL_MU_PLUGINS_SOURCE' ) ?: '', '/' );
 $graphql_root = rtrim( getenv( 'WL_WPGRAPHQL_SOURCE' ) ?: '', '/' );
 $required = [
+	'fixture_bootstrap' => __DIR__ . '/session-handler/bootstrap.php',
+	'fixture_boundaries' => __DIR__ . '/session-handler/boundaries.php',
+	'fixture_cases' => __DIR__ . '/session-handler/cases.php',
+	'Owned_Scope_Driver' => $mu_root . '/database/interface-owned-scope-driver.php',
 	'handler' => $plugin_root . '/includes/utils/class-ql-session-handler.php',
 	'Checkout_Mutation' => $plugin_root . '/includes/data/mutation/class-checkout-mutation.php',
 	'JWT' => $plugin_root . '/vendor-prefixed/firebase/php-jwt/src/JWT.php',
@@ -20,13 +25,13 @@ $required = [
 if ( getenv( 'WL_WOOGRAPHQL_BASELINE_SOURCE' ) ) {
 	$required['baseline_JWT'] = rtrim( getenv( 'WL_WOOGRAPHQL_BASELINE_SOURCE' ), '/' ) . '/vendor-prefixed/firebase/php-jwt/src/JWT.php';
 }
-foreach ( [ 'Cart_Session_Error' => 'class-cart-session-error.php', 'Cart_Session_Operation' => 'class-cart-session-operation.php' ] as $label => $name ) {
+foreach ( [ 'Cart_Session_Error' => 'class-cart-session-error.php', 'Cart_Session_Operation' => 'class-cart-session-operation.php', 'Cart_Session_Storage' => 'class-cart-session-storage.php' ] as $label => $name ) {
 	$file = $plugin_root . '/includes/utils/' . $name;
 	if ( is_file( $file ) ) { $required[$label] = $file; }
 }
 foreach ( $required as $label => $file ) {
 	if ( ! is_file( $file ) ) {
-		fwrite( STDERR, 'Missing required source: ' . $label . '. Set WL_WOOCOMMERCE_SOURCE and WL_WPGRAPHQL_SOURCE to unpacked plugin roots.' . PHP_EOL );
+		fwrite( STDERR, 'Missing required source: ' . $label . '. Set WL_MU_PLUGINS_SOURCE, WL_WOOCOMMERCE_SOURCE and WL_WPGRAPHQL_SOURCE to unpacked plugin roots.' . PHP_EOL );
 		exit( 2 );
 	}
 }

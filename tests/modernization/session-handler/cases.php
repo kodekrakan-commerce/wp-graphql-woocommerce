@@ -58,6 +58,7 @@ function handler_contract_cases(): array {
 		'native-absent-jwt-no-key-returning-cookie' => [ 'graphql' => false, 'native_cookie' => true, 'expect' => 'native-success' ],
 		'detached-memory-native-output-persistence-fences' => $good + [ 'token' => 'guest', 'next_user' => 17, 'expect' => 'detach' ],
 		'detached-captured-customer-shutdown-and-proxy' => $good + [ 'token' => 'guest', 'next_user' => 17, 'expect' => 'captured-customer' ],
+		'detached-captured-customer-displaced-global-retained' => $good + [ 'token' => 'guest', 'next_user' => 17, 'expect' => 'captured-customer', 'displace_customer' => true ],
 		'quarantined-real-persistent-cart-no-user-meta' => $good + [ 'user' => 17, 'token' => 'account', 'token_key' => $other, 'expect' => 'persistent-quarantine' ],
 		'accepted-real-persistent-cart-destroy-control' => $good + [ 'user' => 17, 'token' => 'account', 'expect' => 'persistent-control' ],
 		'checkout-posted-createaccount-held-at-customer-step' => $good + [ 'token' => 'guest', 'checkout_probe' => 'createaccount', 'expect' => 'checkout-hold' ],
@@ -65,6 +66,11 @@ function handler_contract_cases(): array {
 		'checkout-stateful-policy-single-decision' => $good + [ 'token' => 'guest', 'checkout_probe' => 'stateful-once', 'expect' => 'checkout-policy-once' ],
 		'native-checkout-stateful-policy-single-decision' => $good + [ 'token' => 'guest', 'graphql' => false, 'checkout_probe' => 'stateful-once', 'expect' => 'checkout-policy-once' ],
 	];
+	foreach ( [ 'login', 'addToCart' ] as $first ) {
+		foreach ( [ false, true ] as $driver_failure ) {
+			$cases['actual-handler-operation-mixed-' . $first . ( $driver_failure ? '-failed-driver-literal-unavailable' : '-rejection-latched' )] = $good + [ 'token' => 'guest', 'expect' => 'operation-rejection', 'mixed_first' => $first, 'driver_failure' => $driver_failure ];
+		}
+	}
 	foreach ( [ 'null' => null, 'false' => false, 'true' => true, 'integer' => 32, 'array' => [ $strong ], 'object' => (object) [ 'key' => $strong ] ] as $name => $key ) {
 		$cases['wrong-type-filter-' . $name] = $good + [ 'filter_key' => $key, 'header' => 'malformed', 'expect' => 'unavailable' ];
 	}
@@ -139,6 +145,18 @@ function contract_field_hook( string $name ): void {
 		$info = new \GraphQL\Type\Definition\ResolveInfo( $field, new ArrayObject( [ $field_node ] ), $parent, [ $name ], $schema, [], null, $operation, [], [ $name ] );
 	}
 	do_action( 'graphql_before_resolve_field', null, [], new stdClass(), $info, static fn() => null, $info->parentType->name, $info->fieldName, $info->fieldDefinition );
+}
+
+/** Genuine validated mixed mutation and ResolveInfo; no resolver/provider callback runs. */
+function contract_mixed_field_hook( string $first ): void {
+	$schema = \GraphQL\Utils\BuildSchema::build( 'enum Provider { PASSWORD } input LoginInput { provider: Provider! } type LoginPayload { authToken: String } type Query { placeholder: Boolean } type Mutation { login(input: LoginInput!): LoginPayload addToCart: Boolean }' );
+	$schema->getType( 'Provider' )->getValue( 'PASSWORD' )->value = 'password';
+	$roots = 'login' === $first ? 'login(input:{provider:PASSWORD}){authToken} addToCart' : 'addToCart login(input:{provider:PASSWORD}){authToken}';
+	$document = \GraphQL\Language\Parser::parse( 'mutation Mixed { ' . $roots . ' }' );
+	if ( [] !== \GraphQL\Validator\DocumentValidator::validate( $schema, $document ) ) { throw new RuntimeException( 'Mixed fixture must be a valid GraphQL document.' ); }
+	$operation = $document->definitions[0]; $node = $operation->selectionSet->selections[0]; $type = $schema->getMutationType(); $field = $type->getField( $first );
+	$info = new \GraphQL\Type\Definition\ResolveInfo( $field, new ArrayObject( [ $node ] ), $type, [ $first ], $schema, [], null, $operation, [], [ $first ] );
+	do_action( 'graphql_before_resolve_field', null, [], new stdClass(), $info, static function () { HandlerContractBoundary::event( 'forbidden-resolver' ); }, $type->name, $first, $field );
 }
 
 function contract_protected_hooks( string $code ): void {
@@ -244,6 +262,7 @@ function contract_run_case( array $case ): array {
 	$construct_error = contract_try( static function () use ( &$handler ) { $handler = new QL_Session_Handler(); } );
 	contract_assert( null === $construct_error, 'constructor must not throw before GraphQL error formatting boundary' );
 	if ( null === $handler ) { return contract_result(); }
+	HandlerContractBoundary::$woocommerce = (object) [ 'session' => $handler, 'customer' => null, 'cart' => null ];
 	$start = count( HandlerContractBoundary::$events );
 	$init_error = contract_try( static fn() => $handler->init() );
 	contract_assert( null === $init_error, 'init must quarantine failure without throwing before GraphQL formatting boundary' );
@@ -280,11 +299,36 @@ function contract_run_case( array $case ): array {
 		$headers = [];
 		contract_try( static function () use ( &$headers ) { $headers = apply_filters( 'graphql_response_headers_to_send', [] ); } );
 		contract_assert( ! array_key_exists( 'woocommerce-session', $headers ), 'rejected request must not emit a cart session response header' );
-		contract_assert( 0 === HandlerContractBoundary::count( [ 'cache-read', 'db-read', 'db-write', 'db-delete', 'cache-write', 'cache-delete', 'timestamp-write', 'transient-read', 'transient-write', 'transient-delete' ], $start ), 'rejection and later probes must perform no persistence read, write, delete, timestamp update or queue access' );
+		contract_assert( 0 === HandlerContractBoundary::count( [ 'cache-read', 'account-read', 'db-read', 'db-write', 'db-delete', 'cache-write', 'cache-delete', 'timestamp-write', 'transient-read', 'transient-write', 'transient-delete' ], $start ), 'rejection and later probes must perform no persistence read, write, delete, timestamp update or queue access' );
 		contract_assert( 0 === HandlerContractBoundary::count( [ 'expiration-change', 'identity-generated', 'token-built', 'cookie-emitted' ], ( $case['late_expiration_failure'] ?? false ) ? $after_init : $start ), 'rejection must not refresh expiration, generate identity, build token or emit cookie' );
 		return contract_result();
 	}
 	contract_assert( null === $init_error, 'accepted fixture initialization must succeed' );
+	if ( HandlerContractBoundary::$graphql ) {
+		contract_assert( $handler->has_owned_scope() && 'active' === $GLOBALS['wpdb']->state, 'accepted GraphQL fixture must hold the actual checked storage opaque scope' );
+		contract_assert( 1 === HandlerContractBoundary::count( [ 'lifecycle-install' ] ) && 1 === HandlerContractBoundary::count( [ 'scope-begin' ] ), 'accepted GraphQL fixture must install lifecycle and acquire exactly once' );
+	}
+	if ( 'operation-rejection' === $case['expect'] ) {
+		$handler->set( 'contract_probe', 'discarded-dirty-data' ); $rows_before = HandlerContractBoundary::$rows;
+		$start = count( HandlerContractBoundary::$events ); $translations_before = HandlerContractBoundary::$translation_calls;
+		if ( $case['driver_failure'] ) { $GLOBALS['wpdb']->state = 'failed'; HandlerContractBoundary::$throw_translation = true; }
+		$error = contract_try( static fn() => contract_mixed_field_hook( $case['mixed_first'] ) );
+		$code = $case['driver_failure'] ? 'WL_CART_SESSION_UNAVAILABLE' : 'WL_CART_SESSION_TRANSITION_INVALID';
+		contract_assert( contract_error_is( $error, $code ), 'actual coordinator rejection must use actual handler semantic classification' );
+		contract_assert( $handler->has_owned_scope(), 'mixed operation rejection must retain captured abortable scope until explicit cleanup' );
+		contract_assert( $case['driver_failure'] ? ! $handler->has_session_rejection() : $handler->has_session_rejection(), 'actual coordinator must latch healthy rejection and preserve unavailable driver classification' );
+		if ( $case['driver_failure'] ) {
+			contract_assert( $error && 'The cart session is temporarily unavailable.' === $error->getMessage() && $translations_before === HandlerContractBoundary::$translation_calls, 'driver failure must produce literal unavailable before any throwing translation/transition formatter' );
+		} else {
+			contract_assert( null === contract_try( static fn() => $handler->assert_response_available() ), 'healthy mixed rejection may deliver existing GraphQL errors through discard' );
+		}
+		contract_assert( contract_error_is( contract_try( static fn() => $handler->complete_owned_scope() ), $code ), 'mixed operation cannot run successful checked completion or flush old dirty state' );
+		$handler->discard_owned_scope();
+		contract_assert( ! $handler->has_owned_scope() && 1 === HandlerContractBoundary::count( [ 'scope-abort' ], $start ), 'rejected mixed operation cleanup must abort exact captured scope once' );
+		contract_assert( $rows_before === HandlerContractBoundary::$rows && 0 === HandlerContractBoundary::count( [ 'db-read', 'account-read', 'db-write', 'db-delete', 'cache-read', 'cache-write', 'cache-delete', 'timestamp-write', 'token-built', 'forbidden-resolver', 'account-created', 'auth-cookie-emitted' ], $start ), 'mixed rejection and cleanup must have no successful persistence, credential or resolver effects' );
+		return contract_result();
+	}
+
 	if ( in_array( $case['expect'], [ 'checkout-hold', 'checkout-policy-once' ], true ) ) {
 		HandlerContractBoundary::$woocommerce = (object) [ 'session' => $handler ];
 		contract_assert( false === \WPGraphQL\WooCommerce\Data\Mutation\Checkout_Mutation::is_registration_required(), 'checkout policy must initially permit guest preflight' );
@@ -317,12 +361,19 @@ function contract_run_case( array $case ): array {
 		$rows_before = HandlerContractBoundary::$rows;
 		$original_id = $handler->get_customer_id();
 		$proxy = null;
+		$displaced = null;
 		$unrelated_calls = 0;
 		if ( 'captured-customer' === $case['expect'] ) {
 			$proxy = new HandlerContractCustomerProxy( $handler );
-			HandlerContractBoundary::$woocommerce = (object) [ 'customer' => $proxy ];
+			HandlerContractBoundary::$woocommerce->customer = $proxy;
+			$handler->get_owned_lifecycle()->capture_customer( $proxy );
 			add_action( 'shutdown', [ $proxy, 'save' ], 10 );
 			add_action( 'shutdown', static function () use ( &$unrelated_calls ) { ++$unrelated_calls; }, 10 );
+			if ( $case['displace_customer'] ?? false ) {
+				$displaced = new HandlerContractCustomerProxy( $handler );
+				HandlerContractBoundary::$woocommerce->customer = $displaced;
+				add_action( 'shutdown', [ $displaced, 'save' ], 10 );
+			}
 		}
 		$start = count( HandlerContractBoundary::$events );
 		$handler->detach_for_auth();
@@ -339,6 +390,9 @@ function contract_run_case( array $case ): array {
 		do_action( 'shutdown' );
 		if ( null !== $proxy ) {
 			contract_assert( 0 === $proxy->calls && 1 === $unrelated_calls, 'detachment must remove only captured customer shutdown callback and retain unrelated callback at same priority' );
+			if ( $displaced ) {
+				contract_assert( 1 === $displaced->calls && $displaced->blocked_read, 'GraphQL detachment must leave displaced global customer callback registered while actual handler keeps its writes inert' );
+			}
 			$proxy->save();
 			contract_assert( 1 === $proxy->calls && $proxy->blocked_read, 'direct captured customer proxy save must hit actual handler guarded get/set while remaining inert' );
 		} else {
@@ -348,7 +402,7 @@ function contract_run_case( array $case ): array {
 		}
 		contract_protected_hooks( 'WL_CART_SESSION_TRANSITION_INVALID' );
 		contract_assert( $rows_before === HandlerContractBoundary::$rows, 'detachment and captured callbacks must preserve original persisted rows' );
-		contract_assert( 0 === HandlerContractBoundary::count( [ 'db-read', 'db-write', 'db-delete', 'cache-read', 'cache-write', 'cache-delete', 'timestamp-write', 'user-meta-write', 'user-meta-delete', 'cookie-emitted', 'token-built', 'transient-read', 'transient-write', 'transient-delete' ], $start ), 'detachment probes must have no persistence, metadata, queue or emission effects' );
+		contract_assert( 0 === HandlerContractBoundary::count( [ 'account-read', 'db-read', 'db-write', 'db-delete', 'cache-read', 'cache-write', 'cache-delete', 'timestamp-write', 'user-meta-write', 'user-meta-delete', 'cookie-emitted', 'token-built', 'transient-read', 'transient-write', 'transient-delete' ], $start ), 'detachment probes must have no persistence, metadata, queue or emission effects' );
 		return contract_result();
 	}
 	if ( 'signing-unavailable' === $case['expect'] ) {
@@ -368,7 +422,7 @@ function contract_run_case( array $case ): array {
 		contract_assert( false === $token && ! isset( $headers['woocommerce-session'] ), 'signing failure must produce no body token or response header' );
 		contract_assert( '' === $handler->get_customer_id(), 'signing failure must quarantine bound session before resolver can run' );
 		contract_assert( 1 === $sign_filter_calls['before'] && ( 'before-throws' === $case['sign_filter'] ? 0 : 1 ) === $sign_filter_calls['signed'], 'signing failure must not retry filters on field/body/header/shutdown paths' );
-		contract_assert( 0 === HandlerContractBoundary::count( [ 'cache-read', 'db-read', 'db-write', 'db-delete', 'cache-write', 'cache-delete', 'timestamp-write', 'cookie-emitted', 'transient-read', 'transient-write', 'transient-delete' ], $start ), 'signing rejection must precede queue access and all resolver persistence effects' );
+		contract_assert( 0 === HandlerContractBoundary::count( [ 'cache-read', 'account-read', 'db-read', 'db-write', 'db-delete', 'cache-write', 'cache-delete', 'timestamp-write', 'cookie-emitted', 'transient-read', 'transient-write', 'transient-delete' ], $start ), 'signing rejection must precede queue access and all resolver persistence effects' );
 		return contract_result();
 	}
 	if ( 'native-success' === $case['expect'] ) {
@@ -401,14 +455,14 @@ function contract_run_case( array $case ): array {
 		contract_assert( ! isset( $headers['woocommerce-session'] ), 'mid-auth response header must contain no token' );
 		contract_assert( $before_id === $handler->get_customer_id() || '' === $handler->get_customer_id(), 'mid-auth handler must never relabel cart data to new principal' );
 		contract_protected_hooks( 'WL_CART_SESSION_TRANSITION_INVALID' );
-		contract_assert( 0 === HandlerContractBoundary::count( [ 'cache-read', 'db-read', 'db-write', 'db-delete', 'cache-write', 'cache-delete', 'timestamp-write', 'token-built', 'cookie-emitted', 'transient-read', 'transient-write', 'transient-delete' ], $start ), 'mid-auth probes and protected hooks must have no persistence, queue or emission effects' );
+		contract_assert( 0 === HandlerContractBoundary::count( [ 'cache-read', 'account-read', 'db-read', 'db-write', 'db-delete', 'cache-write', 'cache-delete', 'timestamp-write', 'token-built', 'cookie-emitted', 'transient-read', 'transient-write', 'transient-delete' ], $start ), 'mid-auth probes and protected hooks must have no persistence, queue or emission effects' );
 		return contract_result();
 	}
 	$expected = HandlerContractBoundary::$user > 0 ? (string) HandlerContractBoundary::$user : ( isset( $case['token'] ) ? $customer : 't_' . str_repeat( 'f', 30 ) );
 	contract_assert( $expected === (string) $handler->get_customer_id(), 'successful request must bind only expected synthetic identity' );
 	if ( isset( $case['token'] ) ) {
 		contract_assert( 'synthetic-original-cart' === $handler->get( 'cart' ), 'valid bearer must restore original synthetic session data' );
-		contract_assert( HandlerContractBoundary::count( [ 'db-read' ], $start ) > 0, 'valid returning bearer must reach genuine WC persistence path' );
+		contract_assert( HandlerContractBoundary::count( [ 'db-read' ], $start ) > 0, 'valid returning bearer must reach the actual checked storage or native WC persistence path' );
 	}
 	$error = contract_try( static fn() => do_action( 'do_graphql_request', 'query Contract { cart { isEmpty } }', null, null, null ) );
 	contract_assert( null === $error, 'valid session must pass real registered operation guard before token output' );
@@ -428,7 +482,7 @@ function contract_run_case( array $case ): array {
 	}
 	$handler->set( 'contract_probe', 'synthetic-dirty-data' );
 	$handler->save_if_dirty();
-	contract_assert( 'synthetic-dirty-data' === ( HandlerContractBoundary::$rows[$expected]['contract_probe'] ?? null ), 'accepted dirty save must persist only expected identity through genuine WC save_data' );
+	contract_assert( 'synthetic-dirty-data' === ( HandlerContractBoundary::$rows[$expected]['contract_probe'] ?? null ), 'accepted dirty save must persist only expected identity through actual checked storage or native WC save_data' );
 	if ( $case['changing_filter'] ?? false ) { contract_assert( 1 === $key_filter_calls, 'effective key filter must resolve once per handler and remain stable through verification and issuance' ); }
 	if ( $case['sign_cache'] ?? false ) {
 		$handler->build_token(); $handler->build_token();

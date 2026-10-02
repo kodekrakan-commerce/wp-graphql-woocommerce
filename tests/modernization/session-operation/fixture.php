@@ -12,8 +12,10 @@ final class OperationRecordingHandler {
 	public $calls = [];
 	public $mode = true;
 	public $failure;
+	public $rejected = false;
 	public function is_graphql_session() { return $this->mode; }
 	public function assert_session_ready() { $this->calls[] = 'assert'; if ( $this->failure ) { throw new Cart_Session_Error( $this->failure ); } }
+	public function reject_cart_operation() { $this->calls[] = 'reject'; if ( 'WL_CART_SESSION_UNAVAILABLE' === $this->failure ) { throw new Cart_Session_Error( $this->failure ); } $this->rejected = true; }
 	public function prepare_session_token() { $this->calls[] = 'session'; }
 	public function prepare_customer_session_token() { $this->calls[] = 'customer'; }
 	public function complete_session_preparation() { $this->calls[] = 'complete'; }

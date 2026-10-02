@@ -47,6 +47,7 @@ final class Cart_Session_Operation {
 
 	private function reject() {
 		$this->failed = true;
+		$this->handler->reject_cart_operation();
 		throw new Cart_Session_Transition_Error();
 	}
 

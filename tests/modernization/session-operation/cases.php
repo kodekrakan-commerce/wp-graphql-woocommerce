@@ -15,7 +15,7 @@ function operation_cases() {
 	$cases = [];
 	$login = 'login(input:{provider:PASSWORD})';
 	foreach ( [ "$login {user{id}} addToCart(input:{}){success}", "addToCart(input:{}){success} $login {user{id}}", "$login {user{id}} logout(input:{}){success}", "a:$login {user{id}} b:$login {user{id}}" ] as $index => $body ) {
-		$cases['mixed-or-repeated-root-' . $index] = static function () use ( $body ) { [ $result, $handler ] = operation_execute( 'mutation {' . $body . '}' ); op_transition( $result ); op_no_callbacks(); op_assert( ! $handler->detached ); };
+		$cases['mixed-or-repeated-root-' . $index] = static function () use ( $body ) { [ $result, $handler ] = operation_execute( 'mutation {' . $body . '}' ); op_transition( $result ); op_no_callbacks(); op_assert( ! $handler->detached && $handler->rejected && in_array( 'reject', $handler->calls, true ) ); };
 	}
 	$cases['merged-root-fragments-alias-and-coerced-enum'] = static function () {
 		[ $result, $handler ] = operation_execute( 'mutation Actual($p:Provider!){ ...M auth:login(input:{provider:$p}){ ...P } __typename } fragment M on Mutation { auth:login(input:{provider:$p}){user{id}} } fragment P on LoginPayload { authToken user{db:databaseId ... on Person{id}} customer{firstName lastName} legacy:sessionToken }', [], [ 'p' => 'PASSWORD' ], 'Actual' );
@@ -77,7 +77,7 @@ function operation_cases() {
 		[ $schema, $handler ] = operation_fixture(); $dispatch = 0;
 		try { do_action( 'graphql_execute_batch_queries', [ [ 'query' => '{customer{id}}' ], [ 'query' => 'mutation{login(input:{provider:PASSWORD}){authToken}}' ] ] ); ++$dispatch; } catch ( \WPGraphQL\WooCommerce\Utils\Cart_Session_Transition_Error $error ) {}
 		op_assert( 0 === $dispatch ); op_no_callbacks();
-		$result = \GraphQL\GraphQL::executeQuery( $schema, '{customer{id}}', null, new \WPGraphQL\AppContext() )->toArray(); op_transition( $result ); op_no_callbacks(); op_assert( [] === $handler->calls );
+		$result = \GraphQL\GraphQL::executeQuery( $schema, '{customer{id}}', null, new \WPGraphQL\AppContext() )->toArray(); op_transition( $result ); op_no_callbacks(); op_assert( $handler->rejected && 2 === count( $handler->calls ) && [ 'reject', 'reject' ] === $handler->calls );
 	};
 	$cases['native-mode-not-affected'] = static function () {
 		[ $schema, $handler ] = operation_fixture( [ 'mode' => false ] ); do_action( 'graphql_execute_batch_queries', [ [], [] ] );

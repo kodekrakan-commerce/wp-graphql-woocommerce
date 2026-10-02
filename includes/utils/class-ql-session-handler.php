@@ -98,11 +98,27 @@ class QL_Session_Handler extends WC_Session_Handler {
 	/** @var string|null The admitted persisted session key. */
 	private $admitted_customer_id = null;
 
+	/** GraphQL preflight must not initialize cart credentials or callbacks. */
+	private $graphql_options = false;
+	/** @var Cart_Session_Storage|null */
+	private $owned_storage;
+	/** @var Cart_Session_Lifecycle|null */
+	private $owned_lifecycle;
+	private $owned_finalized = false;
+	private $owned_discarded = false;
+	private $header_callback_registered = false;
+
 	/**
 	 * Constructor for the session class.
 	 */
 	public function __construct() {
 		$this->graphql_mode = Router::is_graphql_http_request();
+		$method = $_SERVER['REQUEST_METHOD'] ?? '';
+		$this->graphql_options = $this->graphql_mode && is_string( $method ) && 0 === strcasecmp( 'OPTIONS', $method );
+		if ( $this->graphql_options ) {
+			$this->_token = 'woocommerce-session';
+			return;
+		}
 		try {
 			parent::__construct();
 			$header = apply_filters( 'graphql_woocommerce_cart_session_http_header', 'woocommerce-session' );
@@ -183,7 +199,8 @@ class QL_Session_Handler extends WC_Session_Handler {
 
 	/** No shutdown/native callback may silently relabel an admitted identity. */
 	private function session_access_allowed() {
-		if ( $this->auth_detached ) {
+		if ( $this->auth_detached || $this->graphql_options || $this->owned_finalized || $this->owned_discarded
+			|| ( $this->owned_lifecycle && $this->owned_lifecycle->is_terminal() ) ) {
 			return false;
 		}
 		if ( ! $this->session_admitted || null !== $this->session_failure ) {
@@ -197,6 +214,13 @@ class QL_Session_Handler extends WC_Session_Handler {
 			$this->quarantine( 'WL_CART_SESSION_TRANSITION_INVALID' );
 			return false;
 		}
+		if ( $this->graphql_mode ) {
+			try {
+				$this->assert_owned_scope();
+			} catch ( \Throwable $error ) {
+				return false;
+			}
+		}
 		return true;
 	}
 
@@ -204,6 +228,10 @@ class QL_Session_Handler extends WC_Session_Handler {
 	public function assert_session_ready() {
 		if ( $this->auth_detached ) {
 			throw new Cart_Session_Transition_Error();
+		}
+		if ( $this->graphql_options || $this->owned_finalized || $this->owned_discarded
+			|| ( $this->owned_lifecycle && $this->owned_lifecycle->is_terminal() ) ) {
+			throw new Cart_Session_Error( Cart_Session_Error::UNAVAILABLE );
 		}
 		$this->session_access_allowed();
 		if ( 'WL_CART_SESSION_TRANSITION_INVALID' === $this->session_failure ) {
@@ -220,6 +248,19 @@ class QL_Session_Handler extends WC_Session_Handler {
 	 * @return void
 	 */
 	public function init() {
+		if ( $this->graphql_options || $this->owned_finalized || $this->owned_discarded || $this->auth_detached
+			|| ( $this->owned_lifecycle && $this->owned_lifecycle->is_terminal() ) ) {
+			return;
+		}
+		if ( $this->graphql_mode && ! $this->owned_lifecycle ) {
+			// Install the native failure boundary before storage or Woo hydration.
+			$this->owned_lifecycle = new Cart_Session_Lifecycle(
+				$this,
+				$this->_token,
+				array_values( array_filter( [ $this->_cookie, 'woocommerce_items_in_cart', 'woocommerce_cart_hash' ], 'strlen' ) )
+			);
+			$this->owned_lifecycle->install();
+		}
 		add_filter( 'woocommerce_persistent_cart_enabled', function ( $enabled ) {
 			return $this->session_access_allowed() ? $enabled : false;
 		} );
@@ -228,6 +269,9 @@ class QL_Session_Handler extends WC_Session_Handler {
 		add_action( 'do_graphql_request', [ $this, 'assert_session_ready' ], PHP_INT_MIN, 0 );
 		new Cart_Session_Operation( $this );
 		try {
+			if ( $this->graphql_mode && ( ! function_exists( 'WC' ) || ! is_object( \WC() ) || ( \WC()->session ?? null ) !== $this ) ) {
+				throw new Cart_Session_Error( Cart_Session_Error::UNAVAILABLE );
+			}
 			$this->init_session_token();
 		} catch ( \Throwable $error ) {
 			// Validated-session callbacks may fail after construction too. Early WC
@@ -237,12 +281,11 @@ class QL_Session_Handler extends WC_Session_Handler {
 		if ( ! $this->session_access_allowed() ) {
 			return;
 		}
-		Session_Transaction_Manager::get( $this );
 		if ( $this->graphql_mode ) {
 			add_action( 'woocommerce_set_cart_cookies', [ $this, 'set_customer_session_token' ], 10 );
 			add_action( 'woographql_update_session', [ $this, 'set_customer_session_token' ], 10 );
-			add_action( 'shutdown', [ $this, 'save_data' ] );
 		} else {
+			Session_Transaction_Manager::get( $this );
 			add_action( 'woocommerce_set_cart_cookies', [ $this, 'set_customer_session_cookie' ], 10 );
 			add_action( 'shutdown', [ $this, 'save_data' ], 20 );
 			add_action( 'wp_logout', [ $this, 'destroy_session' ] );
@@ -273,6 +316,13 @@ class QL_Session_Handler extends WC_Session_Handler {
 	 * @return void
 	 */
 	public function init_session_token() {
+		if ( $this->graphql_options || $this->owned_finalized || $this->owned_discarded || $this->auth_detached
+			|| ( $this->owned_lifecycle && $this->owned_lifecycle->is_terminal() ) ) {
+			return;
+		}
+		if ( $this->graphql_mode && ! $this->owned_lifecycle ) {
+			throw new Cart_Session_Error( Cart_Session_Error::UNAVAILABLE );
+		}
 		if ( null !== $this->session_failure || $this->session_admitted ) {
 			return;
 		}
@@ -290,6 +340,7 @@ class QL_Session_Handler extends WC_Session_Handler {
 			$this->_session_expiration   = $token->exp;
 			$this->_session_expiring     = $token->exp - 3600;
 			$this->_has_token            = true;
+			$this->acquire_owned_storage();
 			$this->_data                 = $this->get_session_data();
 			$this->set_session_expiration();
 			if ( $token->exp < $this->_session_expiration ) {
@@ -299,6 +350,7 @@ class QL_Session_Handler extends WC_Session_Handler {
 			$this->set_session_expiration();
 			$this->_customer_id         = (string) $this->generate_customer_id();
 			$this->admitted_customer_id = $this->_customer_id;
+			$this->acquire_owned_storage();
 			$this->_data                = $this->get_session_data();
 			$this->set_customer_session_token( true );
 		} else {
@@ -317,6 +369,10 @@ class QL_Session_Handler extends WC_Session_Handler {
 	 * @return false|\WP_Error|object{ iat: int, exp: int, data: object{ customer_id: string } }
 	 */
 	public function get_session_token() {
+		if ( $this->graphql_options || $this->owned_finalized || $this->owned_discarded || $this->auth_detached
+			|| ( $this->owned_lifecycle && $this->owned_lifecycle->is_terminal() ) ) {
+			return false;
+		}
 		if ( null !== $this->session_failure ) {
 			return new \WP_Error( $this->session_failure, 'WL_CART_SESSION_TRANSITION_INVALID' === $this->session_failure
 				? ( new Cart_Session_Transition_Error() )->getMessage()
@@ -447,10 +503,14 @@ class QL_Session_Handler extends WC_Session_Handler {
 	 * @return false|string
 	 */
 	public function build_token() {
+		if ( $this->graphql_options || $this->owned_finalized || $this->owned_discarded
+			|| ( $this->owned_lifecycle && $this->owned_lifecycle->is_terminal() ) ) {
+			return false;
+		}
 		if ( ! $this->auth_detached && Cart_Session_Error::UNAVAILABLE === $this->session_failure ) {
 			throw new Cart_Session_Error( Cart_Session_Error::UNAVAILABLE );
 		}
-		return $this->session_access_allowed() && $this->token_prepared ? $this->prepared_token : false;
+		return $this->session_output_allowed() && $this->token_prepared ? $this->prepared_token : false;
 	}
 
 	/** Prepare once inside GraphQL's guarded boundary, before queue/resolver work. */
@@ -605,7 +665,7 @@ class QL_Session_Handler extends WC_Session_Handler {
 
 	/** @return string|null */
 	public function build_customer_token() {
-		if ( ! $this->session_access_allowed() ) {
+		if ( ! $this->session_output_allowed() ) {
 			return null;
 		}
 		if ( ! $this->customer_token_prepared ) {
@@ -626,24 +686,35 @@ class QL_Session_Handler extends WC_Session_Handler {
 	 */
 	public function set_customer_session_token( $set ) {
 		if ( $this->session_access_allowed() && ! empty( $this->_session_issued ) && $set ) {
-			/**
-			 * Set callback session token for use in the HTTP response header and customer/user "sessionToken" field.
-			 */
-			add_filter(
-				'graphql_response_headers_to_send',
-				function ( $headers ) {
-					$token = $this->session_access_allowed() && $this->token_prepared ? $this->prepared_token : false;
-					if ( $token ) {
-						$headers[ $this->_token ] = $token;
-					}
-
-					return $headers;
-				},
-				10
-			);
+			if ( ! $this->header_callback_registered ) {
+				add_filter( 'graphql_response_headers_to_send', [ $this, 'add_prepared_session_header' ], 10 );
+				$this->header_callback_registered = true;
+			}
 
 			$this->_issuing_new_token = true;
 		}
+	}
+
+	/** Pure cached output; the final owned boundary checks identity and scope again. */
+	public function add_prepared_session_header( $headers ) {
+		if ( $this->session_output_allowed() && $this->token_prepared && $this->prepared_token ) {
+			$headers[ $this->_token ] = $this->prepared_token;
+		}
+		return $headers;
+	}
+
+	private function session_output_allowed() {
+		if ( $this->graphql_options || $this->auth_detached || $this->owned_finalized || $this->owned_discarded
+			|| ! $this->session_admitted || null !== $this->session_failure
+			|| ( $this->owned_lifecycle && $this->owned_lifecycle->is_terminal() ) ) {
+			return false;
+		}
+		if ( ! $this->native_cookie_mode && ( $this->admitted_user_id !== (int) get_current_user_id()
+			|| (string) $this->_customer_id !== $this->admitted_customer_id ) ) {
+			$this->quarantine( 'WL_CART_SESSION_TRANSITION_INVALID' );
+			return false;
+		}
+		return true;
 	}
 
 	/**
@@ -652,7 +723,7 @@ class QL_Session_Handler extends WC_Session_Handler {
 	 * @return void
 	 */
 	public function set_customer_session_cookie( $set ) {
-		if ( ! $this->session_access_allowed() ) {
+		if ( $this->graphql_mode || ! $this->session_access_allowed() ) {
 			return;
 		}
 		parent::set_customer_session_cookie( $set );
@@ -679,7 +750,8 @@ class QL_Session_Handler extends WC_Session_Handler {
 	 * @return void
 	 */
 	public function set_session_expiration() {
-		if ( null !== $this->session_failure ) {
+		if ( null !== $this->session_failure || $this->graphql_options || $this->owned_finalized || $this->owned_discarded || $this->auth_detached
+			|| ( $this->owned_lifecycle && $this->owned_lifecycle->is_terminal() ) ) {
 			return;
 		}
 		$this->_session_issued = time();
@@ -715,7 +787,9 @@ class QL_Session_Handler extends WC_Session_Handler {
 		if ( ! $this->session_access_allowed() ) {
 			return;
 		}
-		\WC_Cache_Helper::invalidate_cache_group( WC_SESSION_CACHE_GROUP );
+		if ( ! $this->graphql_mode ) {
+			\WC_Cache_Helper::invalidate_cache_group( WC_SESSION_CACHE_GROUP );
+		}
 
 		// Get session data.
 		$data = $this->get_session( (string) $this->_customer_id );
@@ -764,6 +838,18 @@ class QL_Session_Handler extends WC_Session_Handler {
 	/** Detach before a qualified auth callback; never reattach in this request. */
 	public function detach_for_auth() {
 		$this->assert_session_ready();
+		if ( $this->graphql_mode ) {
+			$this->assert_owned_scope();
+			$this->owned_lifecycle->close_writers();
+			try {
+				$this->owned_storage->seal();
+				$this->owned_storage->release();
+				$this->owned_finalized = true;
+			} catch ( \Throwable $error ) {
+				$this->latch_owned_failure();
+				throw new Cart_Session_Error( Cart_Session_Error::UNAVAILABLE );
+			}
+		}
 		$this->auth_detached = true;
 		$this->_data = [];
 		$this->_dirty = false;
@@ -774,14 +860,131 @@ class QL_Session_Handler extends WC_Session_Handler {
 		$this->prepared_token = false;
 		$this->prepared_customer_token = false;
 		$this->pending_expiration_update = null;
-		if ( function_exists( 'WC' ) && isset( \WC()->customer ) ) {
+		if ( ! $this->graphql_mode && function_exists( 'WC' ) && isset( \WC()->customer ) ) {
 			remove_action( 'shutdown', [ \WC()->customer, 'save' ], 10 );
 		}
 	}
 
 	/** @return bool */
 	public function is_graphql_session() {
-		return $this->graphql_mode;
+		return $this->graphql_mode && ! $this->graphql_options;
+	}
+
+	/** Storage admission never precedes credential/account binding. */
+	private function acquire_owned_storage() {
+		if ( ! $this->graphql_mode ) {
+			return;
+		}
+		$wc = function_exists( 'WC' ) ? \WC() : null;
+		if ( ! is_object( $wc ) || ( $wc->session ?? null ) !== $this
+			|| is_object( $wc->customer ?? null ) || is_object( $wc->cart ?? null ) || $this->owned_storage ) {
+			throw new Cart_Session_Error( Cart_Session_Error::UNAVAILABLE );
+		}
+		$this->owned_storage = new Cart_Session_Storage( $this->admitted_customer_id, $this->_table, $this->admitted_user_id );
+		$this->owned_storage->acquire( 5 );
+		$this->owned_storage->invalidate_account_caches();
+	}
+
+	/** Preserve dirty data until explicit discard; failure cannot publish credentials. */
+	private function latch_owned_failure() {
+		$this->session_failure = Cart_Session_Error::UNAVAILABLE;
+		$this->prepared_token = false;
+		$this->prepared_customer_token = false;
+	}
+
+	public function has_owned_scope(): bool {
+		return null !== $this->owned_storage && ! $this->owned_finalized && ! $this->owned_discarded;
+	}
+
+	public function assert_owned_scope(): void {
+		if ( ! $this->graphql_mode || $this->graphql_options || ! $this->has_owned_scope()
+			|| null !== $this->session_failure || $this->auth_detached ) {
+			throw new Cart_Session_Error( Cart_Session_Error::UNAVAILABLE );
+		}
+		try {
+			$this->owned_storage->assert_owned();
+		} catch ( \Throwable $error ) {
+			$this->latch_owned_failure();
+			throw new Cart_Session_Error( Cart_Session_Error::UNAVAILABLE );
+		}
+	}
+
+	/** A controlled GraphQL rejection discards its scope without a successful flush. */
+	public function has_session_rejection(): bool {
+		return in_array( $this->session_failure, [ Cart_Session_Error::INVALID, 'WL_CART_SESSION_TRANSITION_INVALID' ], true );
+	}
+
+	/** Share operation rejection with the terminal lifecycle before typed formatting. */
+	public function reject_cart_operation(): void {
+		// Failed storage/configuration dominates translated transition formatting.
+		$this->assert_response_available();
+		$this->quarantine( 'WL_CART_SESSION_TRANSITION_INVALID' );
+	}
+
+	/** Check sticky owned-storage failures even after a clean auth release. */
+	public function assert_response_available(): void {
+		if ( Cart_Session_Error::UNAVAILABLE === $this->session_failure ) {
+			throw new Cart_Session_Error( Cart_Session_Error::UNAVAILABLE );
+		}
+		if ( $this->owned_storage ) {
+			try {
+				$this->owned_storage->assert_response_available();
+			} catch ( \Throwable $error ) {
+				$this->latch_owned_failure();
+				throw new Cart_Session_Error( Cart_Session_Error::UNAVAILABLE );
+			}
+		} elseif ( $this->graphql_mode && ! $this->graphql_options && $this->session_admitted ) {
+			$this->latch_owned_failure();
+			throw new Cart_Session_Error( Cart_Session_Error::UNAVAILABLE );
+		}
+	}
+
+	/** Called only by the checked HTTP lifecycle, never by shutdown. */
+	public function complete_owned_scope(): void {
+		if ( $this->owned_finalized ) {
+			return;
+		}
+		$this->assert_session_ready();
+		$this->assert_owned_scope();
+		try {
+			$this->save_data();
+			$this->owned_storage->seal();
+			$this->owned_storage->release();
+			$this->owned_finalized = true;
+		} catch ( \Throwable $error ) {
+			$this->latch_owned_failure();
+			throw new Cart_Session_Error( Cart_Session_Error::UNAVAILABLE );
+		}
+	}
+
+	/** Captured cleanup is idempotent and never flushes discarded state. */
+	public function discard_owned_scope(): void {
+		if ( $this->owned_discarded || $this->owned_finalized ) {
+			return;
+		}
+		$this->owned_discarded = true;
+		$this->quarantine( $this->session_failure ?: Cart_Session_Error::UNAVAILABLE );
+		if ( $this->owned_storage ) {
+			$this->owned_storage->abort();
+		}
+	}
+
+	public function get_owned_lifecycle(): ?Cart_Session_Lifecycle {
+		return $this->owned_lifecycle;
+	}
+
+	/** Terminal callbacks stay inert; a live failed storage operation is explicit. */
+	private function persistence_access_allowed() {
+		if ( $this->session_access_allowed() ) {
+			return true;
+		}
+		if ( $this->graphql_mode && ! $this->graphql_options && ! $this->auth_detached
+			&& ! $this->owned_finalized && ! $this->owned_discarded
+			&& ! ( $this->owned_lifecycle && $this->owned_lifecycle->is_terminal() )
+			&& Cart_Session_Error::UNAVAILABLE === $this->session_failure ) {
+			throw new Cart_Session_Error( Cart_Session_Error::UNAVAILABLE );
+		}
+		return false;
 	}
 
 	/** @return bool */
@@ -821,23 +1024,53 @@ class QL_Session_Handler extends WC_Session_Handler {
 
 	/** @inheritDoc */
 	public function get_session( $customer_id, $default_value = false ) {
-		if ( ! $this->session_access_allowed() ) {
+		if ( ! $this->persistence_access_allowed() ) {
 			return $default_value;
 		}
 		if ( ! $this->native_cookie_mode && null !== $this->admitted_customer_id && (string) $customer_id !== $this->admitted_customer_id ) {
-			$this->quarantine( Cart_Session_Error::INVALID );
+			$this->quarantine( $this->graphql_mode ? 'WL_CART_SESSION_TRANSITION_INVALID' : Cart_Session_Error::INVALID );
+			if ( $this->graphql_mode ) {
+				throw new Cart_Session_Transition_Error();
+			}
 			return $default_value;
+		}
+		if ( $this->graphql_mode ) {
+			try {
+				return $this->owned_storage->read( $default_value );
+			} catch ( \Throwable $error ) {
+				$this->latch_owned_failure();
+				throw new Cart_Session_Error( Cart_Session_Error::UNAVAILABLE );
+			}
 		}
 		return parent::get_session( $customer_id, $default_value );
 	}
 
+	public function get_session_data() {
+		return $this->graphql_mode ? (array) $this->get_session( (string) $this->_customer_id, [] ) : parent::get_session_data();
+	}
+
 	/** @inheritDoc */
 	public function save_data( $old_session_key = '' ) {
-		if ( ! $this->session_access_allowed() ) {
+		if ( ! $this->persistence_access_allowed() ) {
 			return;
 		}
 		if ( ! $this->native_cookie_mode && '' !== $old_session_key && (string) $old_session_key !== $this->admitted_customer_id ) {
-			$this->quarantine( Cart_Session_Error::INVALID );
+			$this->quarantine( $this->graphql_mode ? 'WL_CART_SESSION_TRANSITION_INVALID' : Cart_Session_Error::INVALID );
+			if ( $this->graphql_mode ) {
+				throw new Cart_Session_Transition_Error();
+			}
+			return;
+		}
+		if ( $this->graphql_mode ) {
+			if ( $this->_dirty ) {
+				try {
+					$this->owned_storage->write( $this->_data, $this->_session_expiration );
+					$this->_dirty = false;
+				} catch ( \Throwable $error ) {
+					$this->latch_owned_failure();
+					throw new Cart_Session_Error( Cart_Session_Error::UNAVAILABLE );
+				}
+			}
 			return;
 		}
 		parent::save_data( $old_session_key );
@@ -845,11 +1078,23 @@ class QL_Session_Handler extends WC_Session_Handler {
 
 	/** @inheritDoc */
 	public function delete_session( $customer_id ) {
-		if ( ! $this->session_access_allowed() ) {
+		if ( ! $this->persistence_access_allowed() ) {
 			return;
 		}
 		if ( ! $this->native_cookie_mode && (string) $customer_id !== (string) $this->_customer_id ) {
-			$this->quarantine( Cart_Session_Error::INVALID );
+			$this->quarantine( $this->graphql_mode ? 'WL_CART_SESSION_TRANSITION_INVALID' : Cart_Session_Error::INVALID );
+			if ( $this->graphql_mode ) {
+				throw new Cart_Session_Transition_Error();
+			}
+			return;
+		}
+		if ( $this->graphql_mode ) {
+			try {
+				$this->owned_storage->delete();
+			} catch ( \Throwable $error ) {
+				$this->latch_owned_failure();
+				throw new Cart_Session_Error( Cart_Session_Error::UNAVAILABLE );
+			}
 			return;
 		}
 		parent::delete_session( $customer_id );
@@ -857,7 +1102,23 @@ class QL_Session_Handler extends WC_Session_Handler {
 
 	/** @inheritDoc */
 	public function update_session_timestamp( $customer_id, $timestamp ) {
-		if ( $this->session_access_allowed() && (string) $customer_id === (string) $this->_customer_id ) {
+		if ( ! $this->persistence_access_allowed() ) {
+			return;
+		}
+		if ( $this->graphql_mode && (string) $customer_id !== $this->admitted_customer_id ) {
+			$this->quarantine( 'WL_CART_SESSION_TRANSITION_INVALID' );
+			throw new Cart_Session_Transition_Error();
+		}
+		if ( (string) $customer_id === (string) $this->_customer_id ) {
+			if ( $this->graphql_mode ) {
+				try {
+					$this->owned_storage->update_timestamp( $timestamp );
+				} catch ( \Throwable $error ) {
+					$this->latch_owned_failure();
+					throw new Cart_Session_Error( Cart_Session_Error::UNAVAILABLE );
+				}
+				return;
+			}
 			parent::update_session_timestamp( $customer_id, $timestamp );
 		}
 	}
@@ -865,6 +1126,10 @@ class QL_Session_Handler extends WC_Session_Handler {
 	/** @inheritDoc */
 	public function destroy_session() {
 		if ( $this->session_access_allowed() ) {
+			if ( $this->graphql_mode ) {
+				$this->quarantine( 'WL_CART_SESSION_TRANSITION_INVALID' );
+				throw new Cart_Session_Transition_Error();
+			}
 			parent::destroy_session();
 		}
 	}
@@ -873,6 +1138,10 @@ class QL_Session_Handler extends WC_Session_Handler {
 	public function forget_session() {
 		if ( ! $this->session_access_allowed() ) {
 			return;
+		}
+		if ( $this->graphql_mode ) {
+			$this->quarantine( 'WL_CART_SESSION_TRANSITION_INVALID' );
+			throw new Cart_Session_Transition_Error();
 		}
 		parent::forget_session();
 		$this->prepared_token = false;

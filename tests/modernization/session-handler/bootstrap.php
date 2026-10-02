@@ -1,9 +1,12 @@
 <?php
 /** Load genuine external classes without bootstrapping WordPress or a site. */
+$mu_root = rtrim( getenv( 'WL_MU_PLUGINS_SOURCE' ) ?: '', '/' );
+require $mu_root . '/database/interface-owned-scope-driver.php';
 require __DIR__ . '/boundaries.php';
 
 define( 'ABSPATH', __DIR__ . '/' );
 define( 'COOKIEHASH', 'offline-contract' );
+define( 'DB_NAME', 'offline_synthetic_contract' );
 define( 'WC_SESSION_CACHE_GROUP', 'woocommerce_sessions' );
 define( 'MINUTE_IN_SECONDS', 60 );
 $GLOBALS['wpdb'] = new HandlerContractDatabase();
@@ -23,6 +26,9 @@ if ( is_file( $plugin_root . '/includes/utils/class-cart-session-error.php' ) ) 
 }
 if ( is_file( $plugin_root . '/includes/utils/class-cart-session-operation.php' ) ) {
 	require $plugin_root . '/includes/utils/class-cart-session-operation.php';
+}
+if ( is_file( $plugin_root . '/includes/utils/class-cart-session-storage.php' ) ) {
+	require $plugin_root . '/includes/utils/class-cart-session-storage.php';
 }
 require $plugin_root . '/includes/utils/class-ql-session-handler.php';
 require $plugin_root . '/includes/data/mutation/class-checkout-mutation.php';
