@@ -54,6 +54,15 @@ function checkout_contract_error( $result, $error, $code ) {
 }
 
 $cases = [
+	'during-completion-error-preserves-durable-order-before-helper-returns' => static function () {
+		$error = new \GraphQL\Error\UserError( 'Controlled completion failure.' );
+		$result = checkout_contract_execute( 'completion', $error );
+		$formatted = $result->toArray();
+		checkout_contract_assert( 1 === count( $result->errors ) && [ 'checkout' => null ] === $formatted['data'] );
+		checkout_contract_assert( $error->getMessage() === $formatted['errors'][0]['message'] );
+		checkout_contract_assert( 1 === $GLOBALS['checkout_contract']['created'] && 0 === $GLOBALS['checkout_contract']['retrieved'] );
+		checkout_contract_assert( 0 === $GLOBALS['checkout_contract']['purged'] && $GLOBALS['checkout_contract']['order']->durable && $GLOBALS['checkout_contract']['order']->preserved );
+	},
 	'before-order-unavailable-preserves-typed-error' => static function () {
 		$error = new \WPGraphQL\WooCommerce\Utils\Cart_Session_Error( \WPGraphQL\WooCommerce\Utils\Cart_Session_Error::UNAVAILABLE );
 		$result = checkout_contract_execute( 'before', $error );

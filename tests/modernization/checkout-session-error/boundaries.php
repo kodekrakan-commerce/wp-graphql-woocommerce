@@ -16,6 +16,11 @@ namespace WPGraphQL\WooCommerce\Data\Mutation {
 			$results = [ 'result' => 'synthetic-success', 'redirect' => '/synthetic-order' ];
 			$GLOBALS['checkout_contract']['results'] = $results;
 			$GLOBALS['checkout_contract']['order'] = (object) [ 'id' => 77, 'durable' => true, 'preserved' => true ];
+			if ( 'completion' === $GLOBALS['checkout_contract']['phase'] ) {
+				// Controlled helper failure before process_checkout returns its ID.
+				// Actual helper false-return behavior has a separate contract.
+				throw $GLOBALS['checkout_contract']['error'];
+			}
 			return 77;
 		}
 	}

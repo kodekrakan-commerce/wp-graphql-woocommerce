@@ -584,7 +584,11 @@ class Checkout_Mutation {
 			throw new \Exception( __( 'Failed to retrieve order.', 'wp-graphql-woocommerce' ) );
 		}
 
-		$order->payment_complete( $transaction_id );
+		// Native completion can save paid status before a later callback fails.
+		// Its boolean result, not saved status alone, controls checkout success.
+		if ( true !== $order->payment_complete( $transaction_id ) ) {
+			throw new UserError( __( 'Unable to complete this order. Please contact the store before trying again.', 'wp-graphql-woocommerce' ) );
+		}
 
 		return [
 			'result'   => 'success',

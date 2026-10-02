@@ -21,6 +21,7 @@ php tests/contracts/cart-session-owned-handler-contract.php
 php tests/contracts/cart-session-lifecycle-contract.php
 php tests/contracts/cart-session-lifecycle-integration-contract.php
 php tests/contracts/cart-session-checkout-origin-contract.php
+php tests/modernization/free-order-completion-contract.php
 ```
 
 The HTTP and lifecycle runners start native PHP subprocesses and a temporary
@@ -95,3 +96,16 @@ updates must survive without mutation replay. Trusted checkout transfers,
 provider authentication, native cookies, HPOS, store consumers and existing
 order/payment returns remain additional gates. Temporary transition holds are
 not final feature parity.
+
+## Free-order completion result
+
+The retained helper requires literal `true` from native `payment_complete()` before
+returning success or a redirect. WooCommerce can save status/paid date before a
+callback fails and returns `false`; that saved state must not substitute for the
+completion result. Failure preserves existing native state and does not authorize
+a checkout retry. The helper's four controlled-order cases cover false after
+recorded save, true, a thrown exception and missing order. They do not execute the
+WooCommerce datastore or callbacks. The separate actual Checkout closure contract
+covers a controlled helper failure before its ID returns: the durable order remains
+unpurged. Natural checkout/cart clearing and native failure/reconciliation behavior
+remain connected-runtime acceptance work.
