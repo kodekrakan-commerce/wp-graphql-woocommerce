@@ -21,6 +21,7 @@ php tests/contracts/cart-session-checkout-order-contract.php
 php tests/contracts/cart-session-native-cookie-contract.php
 php tests/contracts/cart-session-native-order-save-contract.php
 php tests/contracts/cart-session-native-customer-adoption-contract.php
+php tests/contracts/cart-session-armed-adoption-contract.php
 php tests/contracts/cart-session-http-boundary-contract.php
 php tests/contracts/cart-session-owned-handler-contract.php
 php tests/contracts/cart-session-lifecycle-contract.php
@@ -128,3 +129,5 @@ unpurged. Natural checkout/cart clearing and native failure/reconciliation behav
 remain connected-runtime acceptance work.
 
 The native order-save component regression executes the installed `WC_Order::payment_complete()` and `WC_Abstract_Order::save()` against a declared controlled datastore. It demonstrates the swallowed before-save exception, pending durable order, and literal `true` completion return, and checks that fresh payment save evidence rejects completion. The native customer adoption component executes actual `new WC_Customer(id, true)` and session datastore read/write with a controlled account datastore and empty metadata boundary. It verifies that the new ID rejects old guest addresses, the retained allowlist preserves addresses for the totals probe and final session, and account identity/role/email remain the new account's. These components do not qualify account insertion, HTTP cookie delivery, or the complete native creation journey.
+
+The armed-adoption component executes the real handler private adoption path, the genuine `wc_set_customer_auth_cookie()` caller and armed `init_session_cookie()`, then prepares and verifies a destination JWT. It arranges an already-reserved creation attempt by reflection and uses controlled native auth/user and lifecycle permit/cohort seams, with the actual storage reservation/transfer implementation over the existing recording driver. Success verifies destination claim/header and selected body token; denied consumption, failed lifecycle adoption and signing failure retain pending0 and withhold credentials. This focused regression proves the issuance correction, not native permit/cookie authenticity or installed-cohort acceptance.

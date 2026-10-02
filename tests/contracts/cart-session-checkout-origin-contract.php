@@ -8,7 +8,7 @@ error_reporting(E_ALL); ini_set('display_errors','0'); ini_set('log_errors','0')
 $owner=dirname(__DIR__,2);$fixture=__DIR__.'/cart-session-checkout-origin-fixtures.php';
 // SOURCE_PINS_BEGIN
 const ORIGIN_PINS = [
- 'WPGraphQL\\WooCommerce\\Utils\\QL_Session_Handler'=>'e17eea7a864614e03dfcff639385f102e1148176b1fa281f81e48ae3fd06b470',
+ 'WPGraphQL\\WooCommerce\\Utils\\QL_Session_Handler'=>'2d27f23d0d34434c950e1eda638b580f2109a981a6b805890f7397011ca7bb12',
  'WPGraphQL\\WooCommerce\\Utils\\Cart_Session_Operation'=>'0a1f6e9b48e46db49032568b1baf5de17e887b508362e446454968dbfe0834a2',
  'WPGraphQL\\WooCommerce\\Mutation\\Checkout'=>'18516e37a4c65538426a52d7c12ce9f4b7a99299e585f30cf3b257cd0ae615ac',
  'WPGraphQL\\WooCommerce\\Data\\Mutation\\Checkout_Mutation'=>'d86c544a0c5f2998c9f1c0de7e6a6f8598760e1060ee490cdfdb71444dd0dd56',
@@ -17,9 +17,9 @@ const ORIGIN_PINS = [
  'WPGraphQL\\Utils\\InstrumentSchema'=>'6f3bf9d2bd1b49798a0adc22aa843b8f5b74e89f73ebcb91916ea12957ba529c',
  'WP_Hook'=>'b839c0e5672246bca8db1ab781ec8835f7732f253c375a237cbf6ec536e8d12e',
  'WPGraphQL\\Router'=>'42a311af53cb4cf7003521923a31d1d30838eb627b2790b38472f78c801e64b0',
- 'WC_Customer'=>'9fdf1af2a94b581e33a044d12be7ba875bd0fa33f1618fba94517a65d62b1f18',
- 'WC_Cart'=>'9fdf1af2a94b581e33a044d12be7ba875bd0fa33f1618fba94517a65d62b1f18',
- 'WC_Cart_Session'=>'9fdf1af2a94b581e33a044d12be7ba875bd0fa33f1618fba94517a65d62b1f18',
+ 'WC_Customer'=>'816145bb0c7c862789c0be477eedc95443ce15769b067ec8abdf61d82bc02d98',
+ 'WC_Cart'=>'816145bb0c7c862789c0be477eedc95443ce15769b067ec8abdf61d82bc02d98',
+ 'WC_Cart_Session'=>'816145bb0c7c862789c0be477eedc95443ce15769b067ec8abdf61d82bc02d98',
 ];
 // SOURCE_PINS_END
 $wp=rtrim(getenv('WL_WORDPRESS_SOURCE')?:'','/');$gql=rtrim(getenv('WL_WPGRAPHQL_SOURCE')?:'','/');

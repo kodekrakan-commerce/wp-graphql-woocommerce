@@ -178,7 +178,8 @@ namespace {
 	HandlerContractBoundary::$cache=[WC_SESSION_CACHE_GROUP.':wc_'.WC_SESSION_CACHE_GROUP.'_cache_prefix'=>'fixed-prefix'];
 	$GLOBALS['wpdb']=$db=new HandlerContractDatabase();$_SERVER['REQUEST_METHOD']='POST';
 	$id=HandlerContractBoundary::$user?(string)HandlerContractBoundary::$user:str_repeat('a',32);HandlerContractBoundary::$rows[$id]=['cart'=>'synthetic'];
-	$_SERVER['HTTP_WOOCOMMERCE_SESSION']='Session '.JWT::encode(['iss'=>get_bloginfo('url'),'iat'=>time()-2,'nbf'=>time()-2,'exp'=>time()+172800,'data'=>['customer_id'=>$id]],GRAPHQL_WOOCOMMERCE_SECRET_KEY,'HS256');
+	// This closure/final-branch fixture excludes renewal; allow a 60-second clock margin.
+	$_SERVER['HTTP_WOOCOMMERCE_SESSION']='Session '.JWT::encode(['iss'=>get_bloginfo('url'),'iat'=>time()-2,'nbf'=>time()-2,'exp'=>time()+172860,'data'=>['customer_id'=>$id]],GRAPHQL_WOOCOMMERCE_SECRET_KEY,'HS256');
 	// Runner supplies fixed reviewed hashes; never derive an allowlist from registry.
 	$sources=json_decode(getenv('WL_ORIGIN_SOURCE_PINS'),true);define('WOOGRAPHQL_CART_SESSION_SOURCE_COHORT',$sources);
 	$manifest=[];foreach([['graphql_mutation_input','origin_input',10,4],['graphql_pre_mutate_and_get_payload','origin_pre',10,6],['graphql_mutation_response','origin_response',10,6]] as [$hook,$function,$priority,$args]){

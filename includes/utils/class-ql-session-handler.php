@@ -1121,6 +1121,8 @@ class QL_Session_Handler extends WC_Session_Handler {
 			\wc_set_customer_auth_cookie( $customer_id );
 			if ( $this->checkout_attempt->auth_expected || ! $this->checkout_attempt->adopted ) { throw new Cart_Session_Error( Cart_Session_Error::UNAVAILABLE ); }
 			$this->owned_lifecycle->adopt_checkout_customer( $context );
+			// Issue only for the checked destination; armed init already cleared guest credentials.
+			$this->set_customer_session_token( true );
 			$this->prepare_session_token();
 			if ( $this->checkout_attempt->selected_customer_token ) { $this->prepare_customer_session_token(); }
 			$this->complete_session_preparation();

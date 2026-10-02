@@ -10,7 +10,7 @@
 error_reporting( E_ALL ); ini_set( 'display_errors', '0' ); ini_set( 'log_errors', '0' );
 const INTEGRATION_FIXTURE_SHA = '5cc3c4d56ea19f307df10d4faed0d7aa0edb577afd0fbc2c46ba7e9c782aa33d';
 const INTEGRATION_ADAPTER_SHA = '42a311af53cb4cf7003521923a31d1d30838eb627b2790b38472f78c801e64b0';
-const INTEGRATION_HANDLER_SHA = 'e17eea7a864614e03dfcff639385f102e1148176b1fa281f81e48ae3fd06b470';
+const INTEGRATION_HANDLER_SHA = '2d27f23d0d34434c950e1eda638b580f2109a981a6b805890f7397011ca7bb12';
 const INTEGRATION_RESULT_SHA = '899f37cf608b43eddba734604ba301e178b02f7bf12edf0b8b920b4053435fd9';
 $owner = dirname( __DIR__, 2 ); $endpoint = __DIR__ . '/cart-session-lifecycle-integration-fixture.php';
 $source_files = [ 'handler' => $owner . '/includes/utils/class-ql-session-handler.php', 'fixture' => $endpoint, 'adapter' => __DIR__ . '/cart-session-owned-handler-fixtures.php' ];
