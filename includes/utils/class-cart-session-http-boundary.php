@@ -241,7 +241,9 @@ final class Cart_Session_HTTP_Boundary {
 			$this->remove_owned_headers( $remove_credentials );
 			\http_response_code( $status );
 			\header( 'Content-Type: application/json; charset=UTF-8', true );
-			\header( 'Cache-Control: no-store', true );
+			// Keep the established private HTTP policy on every terminal outcome.
+			\header( 'Cache-Control: no-store, no-cache', true );
+			\header( 'Pragma: no-cache', true );
 		}
 		$this->emission_started = true;
 		echo $body; // phpcs:ignore WordPress.Security.EscapeOutput.OutputNotEscaped -- preencoded native JSON.

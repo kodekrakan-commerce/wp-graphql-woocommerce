@@ -86,7 +86,8 @@ else {
 			usleep( 20000 );
 		}
 		http_contract_expect( $ready );
-		foreach ( [ 'explicit-fail' => 503, 'discard' => 403, 'success' => 200, 'status-preserved' => 202,
+		foreach ( [ 'explicit-fail' => 503, 'owned-uncaught' => 503, 'cart-unavailable-uncaught' => 503,
+			'discard' => 403, 'success' => 200, 'status-preserved' => 202,
 			'shutdown-fail-echo' => 503, 'shutdown-success-wp-buffer-flush' => 200,
 			'shutdown-fail-flush-removal' => 503, 'shutdown-success-nested' => 200 ] as $case => $expected_status ) {
 			http_contract_case( $case . ' actual localhost HTTP header and cookie preservation', function () use ( $address, $case, $expected_status, $failure_body ) {
@@ -99,7 +100,7 @@ else {
 				}
 				http_contract_expect( [ 'https://validated.example.invalid' ] === ( $map['access-control-allow-origin'] ?? [] ) && [ 'true' ] === ( $map['access-control-allow-credentials'] ?? [] ) );
 				http_contract_expect( [ 'Origin' ] === ( $map['vary'] ?? [] ) && [ 'preserved' ] === ( $map['x-unrelated'] ?? [] ) && [ 'preserved-synthetic-auth' ] === ( $map['authorization'] ?? [] ) );
-				http_contract_expect( [ 'no-store' ] === ( $map['cache-control'] ?? [] ) && ! isset( $map['etag'] ) && ! isset( $map['expires'] ) && ! isset( $map['content-encoding'] ) );
+				http_contract_expect( [ 'no-store, no-cache' ] === ( $map['cache-control'] ?? [] ) && [ 'no-cache' ] === ( $map['pragma'] ?? [] ) && ! isset( $map['etag'] ) && ! isset( $map['expires'] ) && ! isset( $map['content-encoding'] ) );
 				http_contract_expect( ! isset( $map['content-length'] ) || [ (string) strlen( $body ) ] === $map['content-length'] );
 				$cookies = $map['set-cookie'] ?? [];
 				http_contract_expect( in_array( 'wordpress_logged_in_synthetic=preserved; Path=/; HttpOnly', $cookies, true ) && in_array( 'unrelated=preserved; Path=/', $cookies, true ) );

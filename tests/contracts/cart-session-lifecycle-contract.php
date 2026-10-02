@@ -136,19 +136,21 @@ else {
 			if ( $connection ) { fclose( $connection ); $ready = true; break; } usleep( 20000 );
 		}
 		lifecycle_expect( $ready );
-		foreach ( [ 'success' => 200, 'customer-failure' => 503, 'replacement-cart' => 503, 'early-auth' => 403 ] as $case => $expected ) {
+		foreach ( [ 'success' => 200, 'customer-failure' => 503, 'replacement-cart' => 503, 'early-auth' => 403,
+			'transition-partial-response' => 200, 'invalid-partial-response' => 200 ] as $case => $expected ) {
 			lifecycle_case( $case . ' actual HTTP status and credential withholding', function () use ( $address, $case, $expected, $ledger, $failure_body ) {
 				$body = file_get_contents( 'http://' . $address . '/?case=' . $case, false, stream_context_create( [ 'http' => [ 'ignore_errors' => true, 'timeout' => 5 ] ] ) );
 				$headers = $http_response_header ?? []; $map = [];
 				lifecycle_expect( str_contains( $headers[0] ?? '', ' ' . $expected . ' ' ) );
 				foreach ( array_slice( $headers, 1 ) as $header ) { $parts = explode( ':', $header, 2 ); if ( 2 === count( $parts ) ) { $map[ strtolower( $parts[0] ) ][] = trim( $parts[1] ); } }
-				lifecycle_expect( [ 'synthetic-auth' ] === ( $map['authorization'] ?? [] ) && [ 'no-store' ] === ( $map['cache-control'] ?? [] ) );
+				lifecycle_expect( [ 'synthetic-auth' ] === ( $map['authorization'] ?? [] ) && [ 'no-store, no-cache' ] === ( $map['cache-control'] ?? [] ) && [ 'no-cache' ] === ( $map['pragma'] ?? [] ) );
 				$cookies = $map['set-cookie'] ?? []; lifecycle_expect( in_array( 'wordpress_logged_in_synthetic=preserved; Path=/; HttpOnly', $cookies, true ) );
-				if ( 200 === $expected ) { lifecycle_expect( [ 'synthetic-cart' ] === ( $map['woocommerce-session'] ?? [] ) && true === json_decode( $body, true )['data']['serialized_before_writers'] ); }
+				if ( 'success' === $case ) { lifecycle_expect( [ 'synthetic-cart' ] === ( $map['woocommerce-session'] ?? [] ) && true === json_decode( $body, true )['data']['serialized_before_writers'] ); }
 				else {
 					lifecycle_expect( ! isset( $map['woocommerce-session'] ) && 1 === count( $cookies ) );
 					if ( 503 === $expected ) { lifecycle_expect( $failure_body === $body ); }
-					else { lifecycle_expect( [ 'https://validated.example.invalid' ] === ( $map['access-control-allow-origin'] ?? [] ) && [ 'true' ] === ( $map['access-control-allow-credentials'] ?? [] ) && 'Synthetic authentication required.' === json_decode( $body, true )['errors'][0]['message'] ); }
+					elseif ( 403 === $expected ) { lifecycle_expect( [ 'https://validated.example.invalid' ] === ( $map['access-control-allow-origin'] ?? [] ) && [ 'true' ] === ( $map['access-control-allow-credentials'] ?? [] ) && 'Synthetic authentication required.' === json_decode( $body, true )['errors'][0]['message'] ); }
+					else { $response = json_decode( $body, true ); lifecycle_expect( ! isset( $response['data'] ) && ( 'transition-partial-response' === $case ? 'WL_CART_SESSION_TRANSITION_INVALID' : 'WL_CART_SESSION_INVALID' ) === ( $response['errors'][0]['extensions']['code'] ?? null ) ); }
 				}
 			} );
 		}
