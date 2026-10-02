@@ -46,6 +46,7 @@ namespace {
 	/** Controlled SQL and capability boundary; never activates the actual driver. */
 	final class HandlerContractDatabase implements \WLCommerce\Database\Owned_Scope_Driver {
 		public string $prefix = 'contract_';
+		public string $options = 'contract_options';
 		public string $users = 'contract_users';
 		public string $last_error = '';
 		public string $state = 'inactive';
@@ -68,7 +69,12 @@ namespace {
 		/** SQL and arguments remain private; only an opaque query index crosses APIs. */
 		public function prepare( $query, ...$args ) { $key = 'controlled-query-' . count( $this->queries ); $this->queries[$key] = [ $query, $args ]; return $key; }
 		public function get_var( $key ) {
-			$this->before_sql(); $prepared = $this->queries[$key]; $id = (string) $prepared[1][1];
+			$this->before_sql(); $prepared = $this->queries[$key];
+            if ( 'SELECT option_value FROM %i WHERE option_name = %s' === $prepared[0] ) {
+                if ( $prepared[1][0] !== $this->options || ! preg_match( '/\A(?:wl_cart_retired_v1_|wl_checkout_creation_v1_)[a-f0-9]{64}\z/D', $prepared[1][1] ) ) { throw new RuntimeException( 'Unexpected controlled marker read.' ); }
+                HandlerContractBoundary::event( 'marker-read' ); return null;
+            }
+            $id = (string) $prepared[1][1];
 			HandlerContractBoundary::event( 'db-read', $id ); return isset( HandlerContractBoundary::$rows[$id] ) ? serialize( HandlerContractBoundary::$rows[$id] ) : null;
 		}
 		public function get_row( $key ) {

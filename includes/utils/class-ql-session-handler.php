@@ -94,6 +94,8 @@ class QL_Session_Handler extends WC_Session_Handler {
 
 	/** @var int Independent account identity at admission. */
 	private $admitted_user_id = 0;
+	private $guest_marker_rejected = false;
+	private $guest_marker_rejected_closed = false;
 
 	/** @var string|null The admitted persisted session key. */
 	private $admitted_customer_id = null;
@@ -276,7 +278,19 @@ class QL_Session_Handler extends WC_Session_Handler {
 		} catch ( \Throwable $error ) {
 			// Validated-session callbacks may fail after construction too. Early WC
 			// bootstrap still must not escape Router's controlled error boundary.
-			$this->quarantine( Cart_Session_Error::UNAVAILABLE );
+			if ( $this->guest_marker_rejected && $error instanceof Cart_Session_Error
+				&& [ 'code' => Cart_Session_Error::INVALID ] === $error->getExtensions()
+				&& Cart_Session_Error::INVALID === $this->session_failure ) {
+				// A canonical burned guest is a credential rejection while its
+				// captured scope remains healthy; storage uncertainty dominates it.
+				try {
+					$this->assert_response_available();
+				} catch ( \Throwable $unavailable ) {
+					$this->quarantine( Cart_Session_Error::UNAVAILABLE );
+				}
+			} else {
+				$this->quarantine( Cart_Session_Error::UNAVAILABLE );
+			}
 		}
 		if ( ! $this->session_access_allowed() ) {
 			return;
@@ -888,8 +902,27 @@ class QL_Session_Handler extends WC_Session_Handler {
 			|| is_object( $wc->customer ?? null ) || is_object( $wc->cart ?? null ) || $this->owned_storage ) {
 			throw new Cart_Session_Error( Cart_Session_Error::UNAVAILABLE );
 		}
+		$driver = $GLOBALS['wpdb'] ?? null;
 		$this->owned_storage = new Cart_Session_Storage( $this->admitted_customer_id, $this->_table, $this->admitted_user_id );
 		$this->owned_storage->acquire( 5 );
+		if ( 0 === $this->admitted_user_id ) {
+			// Direct checked reads under the original guest grant precede session
+			// hydration. Neither marker authorizes authentication or continuation.
+			$options_table = $driver->options ?? null;
+			$retired = $this->owned_storage->read_retirement_marker( $options_table );
+			$creation_attempted = $this->owned_storage->read_creation_marker( $options_table );
+			if ( $retired || $creation_attempted ) {
+				// Close healthy rejected storage before native WC cart construction.
+				// Do not finalize/discard the handler: readiness must retain INVALID.
+				$this->owned_storage->seal();
+				$this->owned_storage->release();
+				$this->owned_storage->assert_response_available();
+				$this->guest_marker_rejected_closed = true;
+				$this->guest_marker_rejected = true;
+				$this->quarantine( Cart_Session_Error::INVALID );
+				throw new Cart_Session_Error( Cart_Session_Error::INVALID );
+			}
+		}
 		$this->owned_storage->invalidate_account_caches();
 	}
 
@@ -901,7 +934,8 @@ class QL_Session_Handler extends WC_Session_Handler {
 	}
 
 	public function has_owned_scope(): bool {
-		return null !== $this->owned_storage && ! $this->owned_finalized && ! $this->owned_discarded;
+		return null !== $this->owned_storage && ! $this->owned_finalized && ! $this->owned_discarded
+			&& ! $this->guest_marker_rejected_closed;
 	}
 
 	public function assert_owned_scope(): void {

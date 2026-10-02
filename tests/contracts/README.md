@@ -35,16 +35,20 @@ affected-behavior recheck.
 | Transfer | Actual storage, frozen source fingerprint, sorted dual ownership, checked destination/retirement transaction and uncertainty outcomes | Driver/SQL/transaction/cache implementations; no native account, authentication or order |
 | Creation reservation | Actual storage and canonical immutable attempt marker, checked marker-only commit, internal UUID reuse and exact transfer revalidation; failed/uncertain attempts cannot resume | Driver/SQL/transaction/cache implementations; no native customer insertion, admission or checkout caller |
 | HTTP | Actual exception handling, native headers/status/cookies, response encoding before finalization and output suppression after emission | Application cleanup and finalization |
-| Owned handler | Actual handler, storage, JWT and WooCommerce session parent; preflight, identity admission, dirty writes, auth detach and terminal fencing | Lifecycle, WordPress hooks, authentication, SQL and cache |
+| Owned handler | Actual handler, storage, JWT and WooCommerce session parent; preflight, guest creation/retirement marker denial before hydration, identity admission, dirty writes, auth detach and terminal fencing | Lifecycle, WordPress hooks, authentication, SQL and cache |
 | Lifecycle | Actual lifecycle and HTTP boundary with genuine `WP_Hook`, `plugin.php` and GraphQL executor; captured writers, callback/source cohorts and terminal outcomes | Handler/storage, cart/customer, router, authentication and SQL |
-| Composed integration | Actual handler, operation coordinator, lifecycle, storage and HTTP boundary; genuine hook dispatcher, GraphQL instrumentation/mutation types/executor and AppContext; rejected mixed operations and later filtered input cannot publish partial data or cart credentials | Customer/cart, router, authentication, SQL and cache; AppContext is constructed without site bootstrap |
+| Composed integration | Actual handler, operation coordinator, lifecycle, storage and HTTP boundary; genuine hook dispatcher, GraphQL instrumentation/mutation types/executor and AppContext; rejected mixed operations and later filtered input cannot publish partial data or cart credentials; marker denial constructs customer/cart before the request guard and exercises shutdown persistence | Customer/cart, router, authentication, SQL and cache; AppContext is constructed without site bootstrap |
 
 The composed positive control completes one checked write, seal and release.
 Rejection controls prevent the captured customer/cart/session flush, retain the
 existing row and abort only the captured active scope. A failed active or released
 driver takes precedence as literal `WL_CART_SESSION_UNAVAILABLE` without a
 translation callback. HTTP controls preserve unrelated authentication headers and
-cookies while withholding queued cart credentials.
+cookies while withholding queued cart credentials. Canonical guest-marker denial
+seals and releases healthy storage before disabling cart-session construction,
+keeps handler writes inert and retains `WL_CART_SESSION_INVALID`. Its controlled
+Router catch models status 500; later storage uncertainty dominates as 503.
+This does not establish installed WooCommerce/Router or native SQL behavior.
 
 The HTTP boundary drops representational metadata such as a queued
 `Content-Encoding` before writing its preencoded JSON. Its post-emission buffer

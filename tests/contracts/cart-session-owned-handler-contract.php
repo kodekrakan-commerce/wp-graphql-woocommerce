@@ -31,7 +31,7 @@ function owned_error( callable $action, string $code = 'WL_CART_SESSION_UNAVAILA
 	throw new RuntimeException( 'Owned handler did not reject an operation.' );
 }
 function owned_fixture( int $user = 0, $credential = 'valid', bool $graphql = true ): array {
-	HandlerContractBoundary::$hooks = []; HandlerContractBoundary::$events = []; HandlerContractBoundary::$rows = []; HandlerContractBoundary::$user = $user; HandlerContractBoundary::$graphql = $graphql; HandlerContractBoundary::$sticky_cache = false;
+	HandlerContractBoundary::$hooks = []; HandlerContractBoundary::$events = []; HandlerContractBoundary::$rows = []; HandlerContractBoundary::$markers = []; HandlerContractBoundary::$user = $user; HandlerContractBoundary::$graphql = $graphql; HandlerContractBoundary::$sticky_cache = false; HandlerContractBoundary::$throw_translation = false;
 	HandlerContractBoundary::$cache = [ WC_SESSION_CACHE_GROUP . ':wc_' . WC_SESSION_CACHE_GROUP . '_cache_prefix' => 'fixed-prefix' ];
 	$GLOBALS['wpdb'] = $db = new HandlerContractDatabase(); $_SERVER['REQUEST_METHOD'] = 'POST'; unset( $_SERVER['HTTP_WOOCOMMERCE_SESSION'] );
 	$id = $user ? (string) $user : str_repeat( 'a', 32 ); HandlerContractBoundary::$rows[$id] = [ 'cart' => 'authoritative-synthetic' ];
@@ -48,6 +48,26 @@ function owned_start( int $user = 0 ): array { $fixture = owned_fixture( $user )
 function owned_prepare( $handler ): void { $handler->prepare_session_token(); $handler->complete_session_preparation(); }
 function owned_dirty( $handler ): bool { $property = new ReflectionProperty( WC_Session::class, '_dirty' ); return $property->getValue( $handler ); }
 function owned_count( string $kind, int $since = 0 ): int { return HandlerContractBoundary::count( [ $kind ], $since ); }
+function owned_marker( string $kind, string $id ): array {
+	$input=''; foreach([DB_NAME,'contract_woocommerce_sessions',$id] as $part){$input.=strlen($part).':'.$part;} $hash=hash('sha256',$input);
+	$uuid='11111111-1111-4111-8111-111111111111';
+	$value='retirement'===$kind ? ['schema'=>1,'kind'=>'checkout_guest_retirement','source_tuple_sha256'=>$hash,'destination_tuple_sha256'=>str_repeat('b',64),'operation_uuid'=>$uuid]
+		: ['schema'=>1,'kind'=>'checkout_creation_attempt','source_tuple_sha256'=>$hash,'operation_uuid'=>$uuid];
+	return [('retirement'===$kind?'wl_cart_retired_v1_':'wl_checkout_creation_v1_').$hash,json_encode($value,JSON_THROW_ON_ERROR|JSON_UNESCAPED_SLASHES)];
+}
+function owned_marker_denial( $h, $db, string $code ): void {
+	$h->init(); owned_error(fn()=>$h->assert_session_ready(),$code);
+	if('WL_CART_SESSION_INVALID'===$code){$h->assert_response_available(); owned_expect($h->has_session_rejection());}
+	else{owned_error(fn()=>$h->assert_response_available()); owned_expect(!$h->has_session_rejection());}
+	owned_error(fn()=>$h->prepare_session_token(),$code); owned_error(fn()=>$h->prepare_customer_session_token(),$code);
+	$h->set_customer_session_token(true); owned_expect([]===$h->add_prepared_session_header([]));
+	if('WL_CART_SESSION_INVALID'===$code){owned_expect(false===$h->build_token());}else{owned_error(fn()=>$h->build_token());}
+	$credential=$h->get_session_token(); owned_expect(is_wp_error($credential)&&$code===$credential->get_error_code());
+	owned_expect(0===$db->reads&&0===$db->writes&&0===owned_count('account-read')&&0===owned_count('token-built')&&0===owned_count('cookie-emitted')&&!owned_dirty($h));
+	$closed='released'===$db->state;
+	if('WL_CART_SESSION_INVALID'===$code){owned_expect(!$h->has_owned_scope()&&1===owned_count('scope-seal')&&1===owned_count('scope-release'));}
+	$h->discard_owned_scope(); $h->discard_owned_scope(); owned_expect(($closed?0:1)===owned_count('scope-abort')&&0===$db->writes);
+}
 function owned_inert( $handler ): void {
 	$handler->set('cart','ignored'); $handler->cart='ignored'; unset($handler->cart); $handler->mark_dirty(); $handler->save_if_dirty(); $handler->save_data(); $handler->reload_data(); $handler->init_session_cookie(); $handler->init_session_token(); $handler->set_session_expiration(); $handler->init();
 	owned_expect( 'default' === $handler->get('cart','default') && false === $handler->build_token() && [] === $handler->add_prepared_session_header([]) );
@@ -108,6 +128,61 @@ $cases['OPTIONS constructor and init are inert even configured filters throw'] =
 $cases['native cookie absent JWT preserves legacy manager and shutdown path'] = function () { [ $h,$db ]=owned_fixture(0,'absent',false); add_filter('graphql_woocommerce_secret_key',fn()=>throw new RuntimeException('Native must not need key')); $h->init(); owned_expect(!$h->has_owned_scope()&&[]===$db->calls&&!empty(HandlerContractBoundary::$hooks['shutdown'][20])&&false===$h->is_graphql_session()); };
 
 $cases['fresh guest acquires before authoritative absent-row read'] = function () { [ $h,$db ]=owned_fixture(0,'absent'); $h->init(); $h->assert_session_ready(); owned_expect(1===$db->reads && 1===owned_count('scope-begin') && []===$h->get_session_data()); };
+$cases['guest grant and both direct marker absences precede session hydration'] = function () {
+	[ $h,$db ]=owned_start(); $events=array_column(HandlerContractBoundary::$events,'kind'); $marker_indices=array_keys($events,'marker-read',true);
+	owned_expect(2===count($db->marker_reads)&&2===count($marker_indices)&&array_search('scope-begin',$events,true)<$marker_indices[0]&&$marker_indices[1]<array_search('db-read',$events,true));
+	owned_prepare($h); owned_expect(!$h->has_session_rejection()&&1===$db->reads&&0===$db->writes);
+};
+foreach(['retirement','creation'] as $kind){foreach(['present','missing','renewal'] as $row_state){$cases['canonical '.$kind.' denies guest with '.$row_state.' source before hydration']=function()use($kind,$row_state){
+	[ $h,$db,$id ]=owned_fixture(); [$key,$bytes]=owned_marker($kind,$id); HandlerContractBoundary::$markers[$key]=$bytes;
+	if('missing'===$row_state){unset(HandlerContractBoundary::$rows[$id]);}
+	if('renewal'===$row_state){$_SERVER['HTTP_WOOCOMMERCE_SESSION']='Session '.JWT::encode(['iss'=>get_bloginfo('url'),'iat'=>time()-2,'nbf'=>time()-2,'exp'=>time()+60,'data'=>['customer_id'=>$id]],GRAPHQL_WOOCOMMERCE_SECRET_KEY,'HS256');}
+	owned_marker_denial($h,$db,'WL_CART_SESSION_INVALID'); owned_expect(2===count($db->marker_reads)&&HandlerContractBoundary::$markers[$key]===$bytes);
+};}}
+foreach(['retirement','creation'] as $kind){foreach(['malformed','wrong-tuple','read-error','last-error','post-query-loss'] as $fault){$cases[$kind.' marker '.$fault.' unavailable before session hydration']=function()use($kind,$fault){
+	[ $h,$db,$id ]=owned_fixture(); [$key,$bytes]=owned_marker($kind,$id);
+	if('malformed'===$fault){HandlerContractBoundary::$markers[$key]='{}';}
+	elseif('wrong-tuple'===$fault){$value=json_decode($bytes,true);$value['source_tuple_sha256']=str_repeat('0',64);HandlerContractBoundary::$markers[$key]=json_encode($value);}
+	elseif('read-error'===$fault){$db->marker_failure=$key;}
+	elseif('last-error'===$fault){$db->marker_last_error=true;}
+	else{$db->marker_post_failure=true;}
+	owned_marker_denial($h,$db,'WL_CART_SESSION_UNAVAILABLE');
+};}}
+$cases['canonical retirement does not hide uncertain creation marker'] = function(){
+	[ $h,$db,$id ]=owned_fixture(); [$key,$bytes]=owned_marker('retirement',$id);HandlerContractBoundary::$markers[$key]=$bytes;[$key]=owned_marker('creation',$id);HandlerContractBoundary::$markers[$key]='{}';
+	owned_marker_denial($h,$db,'WL_CART_SESSION_UNAVAILABLE');owned_expect(2===count($db->marker_reads));
+};
+$cases['account branch ignores guest markers and preserves cache hydration'] = function(){
+	[ $h,$db,$id ]=owned_fixture(17);foreach(['retirement','creation'] as $kind){[$key]=owned_marker($kind,$id);HandlerContractBoundary::$markers[$key]='{}';}$db->marker_last_error=true;
+	$h->init();$h->assert_session_ready();owned_expect([]===$db->marker_reads&&1===owned_count('db-read')&&1===owned_count('account-read')&&!$h->has_session_rejection());
+};
+$cases['fresh guest marker absences precede token issuance'] = function(){
+	[ $h,$db ]=owned_fixture(0,'absent');$h->init();$h->assert_session_ready();owned_prepare($h);$events=array_column(HandlerContractBoundary::$events,'kind');$markers=array_keys($events,'marker-read',true);
+	owned_expect(2===count($markers)&&$markers[1]<array_search('db-read',$events,true)&&$markers[1]<array_search('token-built',$events,true)&&0===$db->writes);
+};
+$cases['marker denial formatter failure remains unavailable instead of ordinary invalid'] = function(){
+	[ $h,$db,$id ]=owned_fixture();[$key,$bytes]=owned_marker('creation',$id);HandlerContractBoundary::$markers[$key]=$bytes;HandlerContractBoundary::$throw_translation=true;
+	owned_marker_denial($h,$db,'WL_CART_SESSION_UNAVAILABLE');owned_expect(2===count($db->marker_reads));
+};
+foreach(['missing','foreign'] as $options){$cases['guest '.$options.' options binding unavailable before marker or session reads']=function()use($options){
+	[ $h,$db ]=owned_fixture();if('missing'===$options){unset($db->options);}else{$db->options='other_options';}
+	owned_marker_denial($h,$db,'WL_CART_SESSION_UNAVAILABLE');owned_expect([]===$db->marker_reads);
+};}
+$cases['expired signed guest rejected before grant or marker reads'] = function(){
+	[ $h,$db,$id ]=owned_fixture();[$key,$bytes]=owned_marker('creation',$id);HandlerContractBoundary::$markers[$key]=$bytes;
+	$_SERVER['HTTP_WOOCOMMERCE_SESSION']='Session '.JWT::encode(['iss'=>get_bloginfo('url'),'iat'=>time()-1000,'nbf'=>time()-1000,'exp'=>time()-120,'data'=>['customer_id'=>$id]],GRAPHQL_WOOCOMMERCE_SECRET_KEY,'HS256');
+	$h->init();owned_error(fn()=>$h->assert_session_ready(),'WL_CART_SESSION_INVALID');$h->assert_response_available();owned_expect([]===$db->marker_reads&&0===$db->reads&&0===$db->writes&&!$h->has_owned_scope());
+};
+$cases['fresh generated guest collision with creation marker cannot issue token'] = function(){
+	[ $h,$db ]=owned_fixture(0,'absent');[$key,$bytes]=owned_marker('creation','t_'.str_repeat('f',30));HandlerContractBoundary::$markers[$key]=$bytes;
+	owned_marker_denial($h,$db,'WL_CART_SESSION_INVALID');owned_expect(2===count($db->marker_reads)&&1===owned_count('identity-generated'));
+};
+foreach(['throw_seal','throw_release','report_failed_after_release'] as $failure){$cases['canonical marker '.$failure.' cannot acknowledge closed INVALID']=function()use($failure){
+	[ $h,$db,$id ]=owned_fixture();[$key,$bytes]=owned_marker('creation',$id);HandlerContractBoundary::$markers[$key]=$bytes;$db->{$failure}=true;
+	$h->init();owned_expect($h->has_owned_scope()&&!$h->has_session_rejection());owned_error(fn()=>$h->assert_session_ready());owned_error(fn()=>$h->assert_response_available());
+	owned_expect(0===$db->reads&&0===$db->writes&&[]===$h->add_prepared_session_header([]));$h->discard_owned_scope();$h->discard_owned_scope();
+	owned_expect(('report_failed_after_release'===$failure?0:1)===owned_count('scope-abort')&&HandlerContractBoundary::$markers[$key]===$bytes);
+};}
 $cases['invalid effective key blocks acquire and response'] = function () { [ $h,$db ]=owned_fixture(); add_filter('graphql_woocommerce_secret_key',fn()=>str_repeat('k',31)); $h->init(); owned_error(fn()=>$h->assert_session_ready()); owned_error(fn()=>$h->assert_response_available()); owned_expect(0===$db->reads&&!in_array('begin',$db->calls,true)); };
 $cases['driver acquisition failure stays unavailable before reads'] = function () { [ $h,$db ]=owned_fixture(); $db->throw_begin=true; $h->init(); owned_error(fn()=>$h->assert_response_available()); owned_expect(0===$db->reads&&0===$db->writes); };
 $cases['lost ownership blocks dirty save before any SQL'] = function () { [ $h,$db ]=owned_start(); $h->set('cart','dirty'); $db->failed=true; owned_error(fn()=>$h->save_data()); owned_expect(owned_dirty($h)&&0===$db->writes); };

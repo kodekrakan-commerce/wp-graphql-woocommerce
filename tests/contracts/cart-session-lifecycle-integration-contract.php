@@ -7,9 +7,9 @@
  * WL_MU_PLUGINS_SOURCE. Native subprocesses permit real emit/exit/shutdown.
  */
 error_reporting( E_ALL ); ini_set( 'display_errors', '0' ); ini_set( 'log_errors', '0' );
-const INTEGRATION_FIXTURE_SHA = '58909fc798a088f79aa9ba192a7224860916c9a0b5a238318ab525c1d51b7b56';
-const INTEGRATION_ADAPTER_SHA = 'a9b39f56e7f2805fa066741816c7644eba3055d6a9f743f6d773f7af309ea20c';
-const INTEGRATION_HANDLER_SHA = 'cc18d37a98981204458394237993d7fb05c1d09ada3234bd3a0e52d3e0c72f5d';
+const INTEGRATION_FIXTURE_SHA = '5c7347295a8b76dedd1d5ef3c48b48ac3f79cebefa64b07ff32c2e999b9c0169';
+const INTEGRATION_ADAPTER_SHA = '9566dc98d41d8894d316340a85f56b752f3d9b1fafd3e604cbcdca0b13d39617';
+const INTEGRATION_HANDLER_SHA = '20f9551ef34bf3b9ff3ee91b89f54fa71c8282ac1c62d714348c6e39ef5a9447';
 $owner = dirname( __DIR__, 2 ); $endpoint = __DIR__ . '/cart-session-lifecycle-integration-fixture.php';
 $source_files = [ 'handler' => $owner . '/includes/utils/class-ql-session-handler.php', 'fixture' => $endpoint, 'adapter' => __DIR__ . '/cart-session-owned-handler-fixtures.php' ];
 foreach ( [ 'handler' => INTEGRATION_HANDLER_SHA, 'fixture' => INTEGRATION_FIXTURE_SHA, 'adapter' => INTEGRATION_ADAPTER_SHA ] as $name => $hash ) {
@@ -87,6 +87,24 @@ foreach ( [ 'unavailable-dominates', 'detached-unavailable-dominates' ] as $case
 		integration_expect( 0 === $state['translations'] && false === $state['rejection'] && ! in_array( 'callback.login', $state['events'], true ) );
 	} );
 }
+foreach ( ['retirement','creation'] as $kind ) { foreach ( ['present','missing','replacement','uncertain'] as $condition ) {
+	integration_case( 'canonical '.$kind.' with '.$condition.' source follows native construction and safe rejected release', function () use ( $kind, $condition ) {
+		[$response,$state]=integration_child('marker-'.$kind.'-'.$condition);
+		$code=in_array($condition,['replacement','uncertain'],true)?'WL_CART_SESSION_UNAVAILABLE':'WL_CART_SESSION_INVALID';
+		integration_expect(is_array($response)&&['errors']===array_keys($response)&&!empty($response['errors']));
+		foreach($response['errors'] as $error){integration_expect($code===($error['extensions']['code']??null));}
+		integration_expect(true===$state['creation_order']&&true===$state['terminal']&&false===$state['owned_scope']&&false===$state['detached']);
+		integration_expect(0===$state['writes']&&0===$state['session_reads']&&2===$state['marker_reads']&&true===$state['markers_preserved']&&true===$state['row_preserved']);
+		integration_expect(false===$state['cart_session_enabled']&&true===$state['customer_save_inert']&&true===$state['replacement_driver_untouched']);
+		integration_expect('WL_CART_SESSION_INVALID'===$state['request_rejection_code']);
+		// Controlled Router catch follows its actual status-500 thrown-error branch;
+		// owned-storage failure still overrides it with the boundary's status 503.
+		integration_expect(500===$state['request_status']&&('WL_CART_SESSION_INVALID'===$code?500:503)===$state['emitted_status']);
+		foreach(['cart.set_session','cart.persistent','cart.cookies','cart.calculate','callback.addToCart','callback.login','db-write','timestamp-write','cache-write','cookie-emitted','token-built'] as $event){integration_expect(!in_array($event,$state['events'],true));}
+		foreach(['scope-seal','scope-release','customer.save'] as $event){integration_expect(1===count(array_filter($state['events'],fn($e)=>$e===$event)));}
+		integration_expect(!in_array('abort',$state['calls'],true));
+	});
+} }
 
 // Native queued-header status is observable only through localhost HTTP.
 $socket = stream_socket_server( 'tcp://127.0.0.1:0', $errno, $error );

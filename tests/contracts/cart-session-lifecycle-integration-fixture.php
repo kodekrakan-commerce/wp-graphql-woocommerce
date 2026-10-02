@@ -17,7 +17,14 @@ namespace {
 	final class WC_Customer {
 		public function __construct() { add_action( 'shutdown', [ $this, 'save' ], 10, 0 ); }
 		public function get_id() { return HandlerContractBoundary::$user; }
-		public function save() { integration_event( 'customer.save' ); }
+		public function save() {
+			integration_event( 'customer.save' );
+			// Native guest customer session datastore delegates its save to set().
+			WC()->session->set( 'customer', [ 'synthetic' => true ] );
+			if ( $GLOBALS['integration_marker_case'] ?? false ) {
+				$GLOBALS['integration_customer_save_inert'] = 'unchanged' === WC()->session->get( 'customer', 'unchanged' );
+			}
+		}
 	}
 	final class WC_Cart {
 		public $session;
@@ -29,7 +36,9 @@ namespace {
 		public function __construct( $cart ) {
 			$this->cart = $cart;
 			$GLOBALS['integration_creation_order'] = null === WC()->cart && null !== WC()->customer && false !== has_action( 'shutdown', [ WC()->customer, 'save' ] );
-			if ( ! apply_filters( 'woocommerce_cart_session_initialize', true, $this ) ) { return; }
+			$enabled = apply_filters( 'woocommerce_cart_session_initialize', true, $this );
+			$GLOBALS['integration_cart_session_enabled'] = $enabled;
+			if ( ! $enabled ) { return; }
 			add_action( 'shutdown', [ $this, 'maybe_set_cart_cookies' ], 20, 0 );
 			add_action( 'woocommerce_after_calculate_totals', [ $this, 'set_session' ], 10, 0 );
 		}
@@ -83,6 +92,17 @@ namespace {
 	HandlerContractBoundary::$woocommerce = (object) [ 'session' => null, 'customer' => null, 'cart' => null ];
 	$GLOBALS['wpdb'] = $db = new HandlerContractDatabase(); $_SERVER['REQUEST_METHOD'] = 'POST';
 	$id = str_repeat( 'a', 32 ); HandlerContractBoundary::$rows[ $id ] = [ 'cart' => 'authoritative-synthetic' ];
+	$marker_case = 1 === preg_match( '/\Amarker-(retirement|creation)-(present|missing|replacement|uncertain)\z/D', $case, $marker_parts );
+	$GLOBALS['integration_marker_case'] = $marker_case;
+	if ( $marker_case ) {
+		$tuple = ''; foreach ( [ DB_NAME, 'contract_woocommerce_sessions', $id ] as $part ) { $tuple .= strlen( $part ) . ':' . $part; } $hash = hash( 'sha256', $tuple );
+		$value = 'retirement' === $marker_parts[1]
+			? [ 'schema'=>1, 'kind'=>'checkout_guest_retirement', 'source_tuple_sha256'=>$hash, 'destination_tuple_sha256'=>str_repeat('b',64), 'operation_uuid'=>'11111111-1111-4111-8111-111111111111' ]
+			: [ 'schema'=>1, 'kind'=>'checkout_creation_attempt', 'source_tuple_sha256'=>$hash, 'operation_uuid'=>'11111111-1111-4111-8111-111111111111' ];
+		HandlerContractBoundary::$markers[ ( 'retirement' === $marker_parts[1] ? 'wl_cart_retired_v1_' : 'wl_checkout_creation_v1_' ) . $hash ] = json_encode( $value, JSON_THROW_ON_ERROR | JSON_UNESCAPED_SLASHES );
+		if ( 'missing' === $marker_parts[2] ) { unset( HandlerContractBoundary::$rows[$id] ); }
+	}
+	$original_row = HandlerContractBoundary::$rows[$id] ?? null; $original_markers = HandlerContractBoundary::$markers;
 	$token = JWT::encode( [ 'iss' => get_bloginfo( 'url' ), 'iat' => time()-2, 'nbf' => time()-2, 'exp' => time()+172800, 'data' => [ 'customer_id' => $id ] ], GRAPHQL_WOOCOMMERCE_SECRET_KEY, 'HS256' );
 	$_SERVER['HTTP_WOOCOMMERCE_SESSION'] = 'Session ' . $token;
 	$fixture_hash = getenv( 'WL_INTEGRATION_FIXTURE_SHA' );
@@ -94,20 +114,38 @@ namespace {
 	] );
 	define( 'WOOGRAPHQL_CART_SESSION_CALLBACK_COHORT', [] );
 	$handler = new QL_Session_Handler(); WC()->session = $handler;
-	register_shutdown_function( static function () use ( $ledger, $handler, $db, $id ) {
+	register_shutdown_function( static function () use ( $ledger, $handler, $db, $id, $original_row, $original_markers ) {
 		do_action( 'shutdown' );
 		$state = [ 'creation_order' => $GLOBALS['integration_creation_order'], 'rejection' => $handler->has_session_rejection(), 'detached' => $handler->is_auth_detached(), 'terminal' => $handler->get_owned_lifecycle()->is_terminal(),
-			'events' => array_column( HandlerContractBoundary::$events, 'kind' ), 'writes' => $db->writes, 'calls' => $db->calls, 'row_preserved' => [ 'cart' => 'authoritative-synthetic' ] === HandlerContractBoundary::$rows[ $id ],
+			'events' => array_column( HandlerContractBoundary::$events, 'kind' ), 'writes' => $db->writes, 'calls' => $db->calls, 'row_preserved' => $original_row === ( HandlerContractBoundary::$rows[ $id ] ?? null ),
+			'markers_preserved' => $original_markers === HandlerContractBoundary::$markers, 'marker_reads' => count($db->marker_reads), 'session_reads' => $db->reads,
+			'owned_scope' => $handler->has_owned_scope(), 'cart_session_enabled' => $GLOBALS['integration_cart_session_enabled'] ?? null,
+			'replacement_driver_untouched' => ( $GLOBALS['wpdb'] ?? null ) === $db || [] === $GLOBALS['wpdb']->calls,
+			'customer_save_inert' => $GLOBALS['integration_customer_save_inert'] ?? null, 'request_rejection_code' => $GLOBALS['integration_request_rejection_code'] ?? null,
+			'request_status' => $GLOBALS['integration_request_status'] ?? null, 'emitted_status' => http_response_code(),
 			'translations' => $GLOBALS['integration_translations'], 'partial_data_before_terminal' => $GLOBALS['integration_partial'] ?? false, 'partial_token_before_terminal' => $GLOBALS['integration_partial_token'] ?? false,
 			'cookie_registry_stable' => $GLOBALS['integration_cookie_registry_stable'] ?? null,
 			'cookie_issuance_preserved' => $GLOBALS['integration_cookie_issuance_preserved'] ?? null,
 			'cookie_token_policy' => $GLOBALS['integration_cookie_token_policy'] ?? null ];
 		file_put_contents( $ledger, json_encode( $state ), LOCK_EX ); chmod( $ledger, 0600 );
 	} );
-	$handler->init(); $handler->assert_session_ready();
+	$handler->init(); if ( ! $marker_case ) { $handler->assert_session_ready(); }
 	WC()->customer = new WC_Customer(); $cart = new WC_Cart(); WC()->cart = $cart;
 	$handler->set( 'cart', 'synthetic-pending-cart' );
-	do_action( 'do_graphql_request' );
+	if ( $marker_case && 'replacement' === $marker_parts[2] ) { $GLOBALS['wpdb'] = new HandlerContractDatabase(); }
+	if ( $marker_case && 'uncertain' === $marker_parts[2] ) { $db->report_failed = true; }
+	$status = 200;
+	try { do_action( 'do_graphql_request' ); }
+	catch ( \WPGraphQL\WooCommerce\Utils\Cart_Session_Error $error ) {
+		if ( ! $marker_case || ['code'=>'WL_CART_SESSION_INVALID'] !== $error->getExtensions() ) { throw $error; }
+		// Request's surrounding catch is a controlled boundary. Also exercise the
+		// genuine Executor field guard independently with the same rejected handler.
+		// Actual WPGraphQL Router::process_http_request catch sets status 500 for
+		// this thrown request error. Native installed transport remains pending.
+		$status = 500;
+		$GLOBALS['integration_request_status'] = $status;
+		$GLOBALS['integration_request_rejection_code'] = 'WL_CART_SESSION_INVALID';
+	}
 	$schema = BuildSchema::build( <<<'SDL'
 enum Provider { PASSWORD SITETOKEN }
 input LoginInput { provider: Provider! }
@@ -158,7 +196,7 @@ SDL
 		}, 10, 4 );
 	}
 	if ( 'unavailable-dominates' === $case ) { $db->report_failed = true; $GLOBALS['integration_forbid_translation'] = true; $GLOBALS['integration_translations'] = 0; }
-	$query = match ( $case ) {
+	$query = $marker_case ? 'mutation { addToCart(input:{}) { success customer { sessionToken } } }' : match ( $case ) {
 		'ordinary-success', 'existing-token-cart-cookie' => 'mutation { addToCart(input:{}) { success customer { sessionToken } } }',
 		'mixed-cart-first' => 'mutation { addToCart(input:{}) { success } login(input:{provider:PASSWORD}) { authToken } }',
 		'later-filtered-input' => 'mutation { addToCart(input:{}) { success customer { sessionToken } } checkout(input:{}) { success } }',
@@ -175,6 +213,6 @@ SDL
 	} else { header( 'woocommerce-session: synthetic-queued-cart' ); }
 	header( 'Authorization: synthetic-auth' );
 	header( 'Set-Cookie: woocommerce_cart_hash=synthetic; Path=/', false ); header( 'Set-Cookie: unrelated=preserved; Path=/', false );
-	apply_filters( 'graphql_process_http_request_response', $response, null, null, null, null, 200 );
+	apply_filters( 'graphql_process_http_request_response', $response, null, null, null, null, $status );
 	exit( 3 );
 }

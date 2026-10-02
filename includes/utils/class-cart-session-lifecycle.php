@@ -9,7 +9,7 @@ namespace WPGraphQL\WooCommerce\Utils;
 final class Cart_Session_Lifecycle {
 
 	private const SOURCE_COHORT = [
-		'WPGraphQL\\WooCommerce\\Utils\\QL_Session_Handler' => 'cc18d37a98981204458394237993d7fb05c1d09ada3234bd3a0e52d3e0c72f5d',
+		'WPGraphQL\\WooCommerce\\Utils\\QL_Session_Handler' => '20f9551ef34bf3b9ff3ee91b89f54fa71c8282ac1c62d714348c6e39ef5a9447',
 		'WP_Hook' => 'b839c0e5672246bca8db1ab781ec8835f7732f253c375a237cbf6ec536e8d12e',
 		'WPGraphQL\\Router' => '4c85426fdc7223c69358ed70e68ba45e4c5f632a4234f860ebba41d68ec32ea7',
 		'WC_Customer' => '14ca0da46d63445e72053cba79fad368393490e7bf416e53936eeb17c579a452',
