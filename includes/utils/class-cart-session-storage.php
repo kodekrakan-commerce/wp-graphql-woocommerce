@@ -27,6 +27,7 @@ final class Cart_Session_Storage {
 	private $transfer_record;
 	private $transfer_source_id;
 	private $options_table;
+	private $creation_record;
 
 	/** The caller must already have verified the credential and account binding. */
 	public function __construct( $customer_id, $session_table, $bound_user_id = 0 ) {
@@ -117,7 +118,8 @@ final class Cart_Session_Storage {
 	}
 
 	private function assert_data_access() {
-		if ( null !== $this->transfer_source_id && 'committed' !== $this->transfer_record->phase ) {
+		if ( ( null !== $this->creation_record && ! $this->creation_record->commit_acknowledged )
+			|| ( null !== $this->transfer_source_id && 'committed' !== $this->transfer_record->phase ) ) {
 			$this->fail();
 		}
 	}
@@ -432,6 +434,93 @@ final class Cart_Session_Storage {
 		}
 	}
 
+	private function creation_marker_value( $identity ) {
+		return $this->transfer_read( 'SELECT option_value FROM %i WHERE option_name = %s',
+			[ $this->options_table, 'wl_checkout_creation_v1_' . $this->tuple_hash( $identity ) ], 'get_var' );
+	}
+
+	private function validate_creation_marker( $value, $identity ) {
+		if ( ! is_string( $value ) ) { $this->fail(); }
+		$marker = json_decode( $value, true, 8, JSON_THROW_ON_ERROR );
+		if ( ! is_array( $marker ) || array_keys( $marker ) !== [ 'schema', 'kind', 'source_tuple_sha256', 'operation_uuid' ]
+			|| 1 !== $marker['schema'] || 'checkout_creation_attempt' !== $marker['kind']
+			|| $this->tuple_hash( $identity ) !== $marker['source_tuple_sha256'] || ! is_string( $marker['operation_uuid'] )
+			|| ! preg_match( '/\A[a-f0-9]{8}-[a-f0-9]{4}-4[a-f0-9]{3}-[89ab][a-f0-9]{3}-[a-f0-9]{12}\z/D', $marker['operation_uuid'] )
+			|| json_encode( $marker, JSON_THROW_ON_ERROR | JSON_UNESCAPED_SLASHES ) !== $value ) {
+			$this->fail();
+		}
+		return $marker;
+	}
+
+	/** Presence burns the guest attempt; a marker never grants authentication or resumption. */
+	public function read_creation_marker( $options_table ) {
+		try {
+			$this->assert_active();
+			if ( 0 !== $this->user_id ) { $this->fail(); }
+			$this->pin_options_table( $options_table );
+			$value = $this->creation_marker_value( $this->customer_id );
+			if ( null === $value ) { return false; }
+			$this->validate_creation_marker( $value, $this->customer_id );
+			return true;
+		} catch ( \Throwable $error ) {
+			$this->transfer_failure();
+		}
+	}
+
+	private function new_operation_uuid() {
+		$bytes = random_bytes( 16 );
+		$bytes[6] = chr( ( ord( $bytes[6] ) & 15 ) | 64 );
+		$bytes[8] = chr( ( ord( $bytes[8] ) & 63 ) | 128 );
+		$hex = bin2hex( $bytes );
+		return substr( $hex, 0, 8 ) . '-' . substr( $hex, 8, 4 ) . '-' . substr( $hex, 12, 4 ) . '-' . substr( $hex, 16, 4 ) . '-' . substr( $hex, 20 );
+	}
+
+	/** Dormant marker-only reservation. Future callers must supply one-use server authority. */
+	public function reserve_checkout_creation( $options_table ) {
+		try {
+			$this->assert_active();
+			if ( 0 !== $this->user_id || null !== $this->creation_record || null !== $this->transfer_record ) { $this->fail(); }
+			$this->creation_record = (object) [ 'attempted' => true, 'commit_attempted' => false, 'commit_acknowledged' => false ];
+			$this->pin_options_table( $options_table );
+			$this->qualify_transfer_tables();
+			if ( false !== $this->read_creation_marker( $options_table ) || false !== $this->read_retirement_marker( $options_table ) ) { $this->fail(); }
+			$this->creation_record->uuid = $this->new_operation_uuid();
+			$this->creation_record->bytes = json_encode( [ 'schema' => 1, 'kind' => 'checkout_creation_attempt',
+				'source_tuple_sha256' => $this->tuple_hash( $this->customer_id ), 'operation_uuid' => $this->creation_record->uuid ],
+				JSON_THROW_ON_ERROR | JSON_UNESCAPED_SLASHES );
+			// Exact START must reject any pre-existing transaction; never commit somebody else's work.
+			$this->transfer_command( 'START TRANSACTION', [], 0 );
+			$this->transfer_command( 'INSERT INTO %i (`option_name`, `option_value`, `autoload`) VALUES (%s, %s, %s)',
+				[ $options_table, 'wl_checkout_creation_v1_' . $this->tuple_hash( $this->customer_id ), $this->creation_record->bytes, 'no' ], 1 );
+			$this->creation_record->commit_attempted = true;
+			$this->transfer_command( 'COMMIT', [], 0 );
+			$this->creation_record->commit_acknowledged = true;
+			return true;
+		} catch ( \Throwable $error ) {
+			$this->transfer_failure();
+		}
+	}
+
+	/** Exact in-memory reservation is required; stored UUIDs are never caller authority. */
+	private function assert_creation_reservation( $identity ) {
+		$value = $this->creation_marker_value( $identity );
+		if ( null === $this->creation_record ) {
+			if ( null !== $value ) { $this->fail(); }
+			return;
+		}
+		if ( ! $this->creation_record->commit_acknowledged || $value !== $this->creation_record->bytes ) { $this->fail(); }
+		$marker = $this->validate_creation_marker( $value, $identity );
+		if ( $marker['operation_uuid'] !== $this->creation_record->uuid
+			|| ( null !== $this->transfer_record && $this->transfer_record->uuid !== $this->creation_record->uuid ) ) { $this->fail(); }
+	}
+
+	/** Sanitized storage outcome, never a creation/authentication permit. */
+	public function checkout_creation_outcome() {
+		return [ 'attempted' => (bool) ( $this->creation_record->attempted ?? false ),
+			'commit_attempted' => (bool) ( $this->creation_record->commit_attempted ?? false ),
+			'commit_acknowledged' => (bool) ( $this->creation_record->commit_acknowledged ?? false ) ];
+	}
+
 	/** Persist/fingerprint, then freeze. Caller must separately close captured writers. */
 	public function freeze_for_checkout_transfer( array $data, $expiry ) {
 		try {
@@ -439,16 +528,13 @@ final class Cart_Session_Storage {
 			if ( 0 !== $this->user_id || null !== $this->transfer_record ) {
 				$this->fail();
 			}
+			if ( null !== $this->creation_record ) { $this->assert_creation_reservation( $this->customer_id ); }
 			$this->write( $data, $expiry );
 			$snapshot = $this->raw_session_snapshot( $this->customer_id );
 			if ( null === $snapshot || $snapshot['bytes'] !== serialize( $data ) || $snapshot['expiry'] !== $expiry ) {
 				$this->fail();
 			}
-			$bytes = random_bytes( 16 );
-			$bytes[6] = chr( ( ord( $bytes[6] ) & 15 ) | 64 );
-			$bytes[8] = chr( ( ord( $bytes[8] ) & 63 ) | 128 );
-			$hex = bin2hex( $bytes );
-			$uuid = substr( $hex, 0, 8 ) . '-' . substr( $hex, 8, 4 ) . '-' . substr( $hex, 12, 4 ) . '-' . substr( $hex, 16, 4 ) . '-' . substr( $hex, 20 );
+			$uuid = null !== $this->creation_record ? $this->creation_record->uuid : $this->new_operation_uuid();
 			$this->frozen_snapshot = $snapshot;
 			$this->transfer_record = (object) [ 'uuid' => $uuid, 'phase' => 'frozen', 'attempted' => false,
 				'commit_attempted' => false, 'commit_acknowledged' => false, 'rollback_acknowledged' => false ];
@@ -502,12 +588,14 @@ final class Cart_Session_Storage {
 			$destination->options_table = $options_table;
 			$destination->transfer_source_id = $this->customer_id;
 			$destination->transfer_record = $this->transfer_record;
+			$destination->creation_record = $this->creation_record;
 			$locks = [ $this->tuple_hash( $this->customer_id ), $this->tuple_hash( (string) $new_user_id ) ];
 			sort( $locks, SORT_STRING );
 			$destination->handle = $this->driver->begin_owned_scope( $locks, $timeout_seconds );
 			$destination->state = 'active';
 			$destination->assert_owned();
 			$destination->qualify_transfer_tables();
+			$destination->assert_creation_reservation( $this->customer_id );
 			if ( $destination->raw_session_snapshot( $this->customer_id ) !== $this->frozen_snapshot
 				|| null !== $destination->raw_session_snapshot( (string) $new_user_id )
 				|| null !== $destination->transfer_read( 'SELECT option_value FROM %i WHERE option_name = %s',

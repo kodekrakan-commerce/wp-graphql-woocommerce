@@ -14,6 +14,8 @@ export WL_WPGRAPHQL_SOURCE=/path/to/qualified/wp-graphql
 export WL_MU_PLUGINS_SOURCE=/path/to/qualified/wl-mu-plugins
 
 php tests/contracts/cart-session-storage-contract.php
+php tests/contracts/cart-session-transfer-contract.php
+php tests/contracts/cart-session-creation-contract.php
 php tests/contracts/cart-session-http-boundary-contract.php
 php tests/contracts/cart-session-owned-handler-contract.php
 php tests/contracts/cart-session-lifecycle-contract.php
@@ -30,6 +32,8 @@ affected-behavior recheck.
 | Runner | Verified boundary | Important substitutes |
 | --- | --- | --- |
 | Storage | Actual storage helper, driver interface, WooCommerce cache helpers and typed GraphQL errors; captured ownership, checked CRUD/cache invalidation, failure and pure response observation | Driver implementation, SQL, object cache and account hydration |
+| Transfer | Actual storage, frozen source fingerprint, sorted dual ownership, checked destination/retirement transaction and uncertainty outcomes | Driver/SQL/transaction/cache implementations; no native account, authentication or order |
+| Creation reservation | Actual storage and canonical immutable attempt marker, checked marker-only commit, internal UUID reuse and exact transfer revalidation; failed/uncertain attempts cannot resume | Driver/SQL/transaction/cache implementations; no native customer insertion, admission or checkout caller |
 | HTTP | Actual exception handling, native headers/status/cookies, response encoding before finalization and output suppression after emission | Application cleanup and finalization |
 | Owned handler | Actual handler, storage, JWT and WooCommerce session parent; preflight, identity admission, dirty writes, auth detach and terminal fencing | Lifecycle, WordPress hooks, authentication, SQL and cache |
 | Lifecycle | Actual lifecycle and HTTP boundary with genuine `WP_Hook`, `plugin.php` and GraphQL executor; captured writers, callback/source cohorts and terminal outcomes | Handler/storage, cart/customer, router, authentication and SQL |
@@ -47,6 +51,13 @@ The HTTP boundary drops representational metadata such as a queued
 suppresses PHP shutdown/destructor output, including ordinary WordPress buffer
 flushing. This does not undo shutdown database side effects, qualify streaming or
 unknown output callbacks, or intercept raw/SAPI output bypasses.
+
+Creation and transfer APIs remain dormant. Reservation burns one guest creation
+attempt before future native customer insertion; its marker never authenticates
+or identifies an account whose insertion failed to return. Acknowledged reservation
+is required before its freeze, and transfer rollback preserves that marker. Future
+caller authority, both-marker admission checks, callback qualification, account
+reconciliation/retention and order preservation remain separate acceptance gates.
 
 ## Installation and connected acceptance remain separate
 
