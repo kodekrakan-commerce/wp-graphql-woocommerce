@@ -7,9 +7,9 @@
  * WL_MU_PLUGINS_SOURCE. Native subprocesses permit real emit/exit/shutdown.
  */
 error_reporting( E_ALL ); ini_set( 'display_errors', '0' ); ini_set( 'log_errors', '0' );
-const INTEGRATION_FIXTURE_SHA = '7f8f542e5c0b72e0b272a1ff75bf58ecf555dfe89ddc935948d7d109a18a8191';
+const INTEGRATION_FIXTURE_SHA = '58909fc798a088f79aa9ba192a7224860916c9a0b5a238318ab525c1d51b7b56';
 const INTEGRATION_ADAPTER_SHA = 'a9b39f56e7f2805fa066741816c7644eba3055d6a9f743f6d773f7af309ea20c';
-const INTEGRATION_HANDLER_SHA = '53c49980260368ccb52ea3aeee552ab6fa3eeab780fd54b7d982c8a6c6736370';
+const INTEGRATION_HANDLER_SHA = 'cc18d37a98981204458394237993d7fb05c1d09ada3234bd3a0e52d3e0c72f5d';
 $owner = dirname( __DIR__, 2 ); $endpoint = __DIR__ . '/cart-session-lifecycle-integration-fixture.php';
 $source_files = [ 'handler' => $owner . '/includes/utils/class-ql-session-handler.php', 'fixture' => $endpoint, 'adapter' => __DIR__ . '/cart-session-owned-handler-fixtures.php' ];
 foreach ( [ 'handler' => INTEGRATION_HANDLER_SHA, 'fixture' => INTEGRATION_FIXTURE_SHA, 'adapter' => INTEGRATION_ADAPTER_SHA ] as $name => $hash ) {
@@ -57,6 +57,13 @@ integration_case( 'ordinary composed success exercises actual prepared token, fl
 	$events = array_values( array_filter( $state['events'], fn( $event ) => in_array( $event, [ 'callback.addToCart', 'customer.save', 'cart.set_session', 'cart.persistent', 'cart.cookies', 'db-write', 'scope-seal', 'scope-release' ], true ) ) );
 	integration_expect( [ 'callback.addToCart', 'customer.save', 'cart.set_session', 'cart.persistent', 'cart.cookies', 'db-write', 'scope-seal', 'scope-release' ] === $events );
 } );
+integration_case( 'existing valid token survives frozen registry then native cart-cookie hook and checked flush', function () {
+	[ $response, $state ] = integration_child( 'existing-token-cart-cookie' );
+	integration_expect( true === ( $response['data']['addToCart']['success'] ?? null ) && is_string( $response['data']['addToCart']['customer']['sessionToken'] ?? null ) );
+	integration_expect( true === $state['cookie_registry_stable'] && true === $state['cookie_issuance_preserved'] && true === $state['cookie_token_policy'] );
+	integration_expect( 0 === $state['translations'] && false === $state['rejection'] && true === $state['terminal'] && 1 === $state['writes'] );
+	integration_expect( ! in_array( 'abort', $state['calls'], true ) && 1 === count( array_filter( $state['calls'], fn( $call ) => 'release' === $call ) ) );
+} );
 foreach ( [ 'mixed-login-first', 'mixed-cart-first' ] as $case ) {
 	integration_case( $case . ' actual operation rejection latches handler then discards with zero callbacks or flush', function () use ( $case ) {
 		[ $response, $state ] = integration_child( $case ); integration_assert_rejection( $response, $state );
@@ -102,6 +109,14 @@ else {
 				integration_expect( ( 503 === $status ? 'WL_CART_SESSION_UNAVAILABLE' : 'WL_CART_SESSION_TRANSITION_INVALID' ) === $response['errors'][0]['extensions']['code'] );
 			} );
 		}
+		integration_case( 'existing-token cart-cookie actual HTTP returns prepared credential and body token after checked release', function () use ( $address ) {
+			$body = file_get_contents( 'http://' . $address . '/?case=existing-token-cart-cookie', false, stream_context_create( [ 'http' => [ 'ignore_errors' => true, 'timeout' => 5 ] ] ) );
+			$headers = $http_response_header ?? []; $map = []; integration_expect( str_contains( $headers[0] ?? '', ' 200 ' ) );
+			foreach ( array_slice( $headers, 1 ) as $header ) { $parts = explode( ':', $header, 2 ); if ( 2 === count( $parts ) ) { $map[strtolower( $parts[0] )][] = trim( $parts[1] ); } }
+			$response = json_decode( $body, true ); $token = $response['data']['addToCart']['customer']['sessionToken'] ?? null;
+			integration_expect( true === ( $response['data']['addToCart']['success'] ?? null ) && is_string( $token ) && [ $token ] === ( $map['woocommerce-session'] ?? [] ) );
+			integration_expect( [ 'synthetic-auth' ] === ( $map['authorization'] ?? [] ) && ! isset( $response['errors'] ) );
+		} );
 	} catch ( Throwable $ignored ) { integration_case( 'native localhost fixture startup', fn() => integration_expect( false ) ); }
 	finally { if ( is_resource( $server ) ) { proc_terminate( $server ); proc_close( $server ); } unlink( $ledger ); }
 }

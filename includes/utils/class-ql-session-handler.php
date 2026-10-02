@@ -282,6 +282,9 @@ class QL_Session_Handler extends WC_Session_Handler {
 			return;
 		}
 		if ( $this->graphql_mode ) {
+			// Bind the exact pure output callback before the lifecycle freezes its
+			// registry. Native cart-cookie events must only change issuance intent.
+			$this->register_prepared_session_header();
 			add_action( 'woocommerce_set_cart_cookies', [ $this, 'set_customer_session_token' ], 10 );
 			add_action( 'woographql_update_session', [ $this, 'set_customer_session_token' ], 10 );
 		} else {
@@ -686,18 +689,23 @@ class QL_Session_Handler extends WC_Session_Handler {
 	 */
 	public function set_customer_session_token( $set ) {
 		if ( $this->session_access_allowed() && ! empty( $this->_session_issued ) && $set ) {
-			if ( ! $this->header_callback_registered ) {
-				add_filter( 'graphql_response_headers_to_send', [ $this, 'add_prepared_session_header' ], 10 );
-				$this->header_callback_registered = true;
-			}
+			$this->register_prepared_session_header();
 
 			$this->_issuing_new_token = true;
 		}
 	}
 
+	/** Registration is independent of signing, expiration and issuance intent. */
+	private function register_prepared_session_header(): void {
+		if ( ! $this->header_callback_registered ) {
+			add_filter( 'graphql_response_headers_to_send', [ $this, 'add_prepared_session_header' ], 10 );
+			$this->header_callback_registered = true;
+		}
+	}
+
 	/** Pure cached output; the final owned boundary checks identity and scope again. */
 	public function add_prepared_session_header( $headers ) {
-		if ( $this->session_output_allowed() && $this->token_prepared && $this->prepared_token ) {
+		if ( $this->_issuing_new_token && $this->session_output_allowed() && $this->token_prepared && $this->prepared_token ) {
 			$headers[ $this->_token ] = $this->prepared_token;
 		}
 		return $headers;

@@ -35,7 +35,12 @@ namespace {
 		}
 		public function set_session() { integration_event( 'cart.set_session' ); WC()->session->set( 'cart', 'synthetic-final-cart' ); }
 		public function persistent_cart_update() { integration_event( 'cart.persistent' ); }
-		public function maybe_set_cart_cookies() { integration_event( 'cart.cookies' ); header( 'Set-Cookie: woocommerce_cart_hash=synthetic; Path=/', false ); }
+		public function maybe_set_cart_cookies() {
+			integration_event( 'cart.cookies' ); header( 'Set-Cookie: woocommerce_cart_hash=synthetic; Path=/', false );
+			// Controlled cart/cookie implementation, genuine native hook dispatcher:
+			// actual WC_Cart_Session::set_cart_cookies() ends with this action.
+			do_action( 'woocommerce_set_cart_cookies', true );
+		}
 	}
 	$owner = dirname( __DIR__, 2 );
 	$wp = rtrim( getenv( 'WL_WORDPRESS_SOURCE' ) ?: '', '/' );
@@ -93,7 +98,10 @@ namespace {
 		do_action( 'shutdown' );
 		$state = [ 'creation_order' => $GLOBALS['integration_creation_order'], 'rejection' => $handler->has_session_rejection(), 'detached' => $handler->is_auth_detached(), 'terminal' => $handler->get_owned_lifecycle()->is_terminal(),
 			'events' => array_column( HandlerContractBoundary::$events, 'kind' ), 'writes' => $db->writes, 'calls' => $db->calls, 'row_preserved' => [ 'cart' => 'authoritative-synthetic' ] === HandlerContractBoundary::$rows[ $id ],
-			'translations' => $GLOBALS['integration_translations'], 'partial_data_before_terminal' => $GLOBALS['integration_partial'] ?? false, 'partial_token_before_terminal' => $GLOBALS['integration_partial_token'] ?? false ];
+			'translations' => $GLOBALS['integration_translations'], 'partial_data_before_terminal' => $GLOBALS['integration_partial'] ?? false, 'partial_token_before_terminal' => $GLOBALS['integration_partial_token'] ?? false,
+			'cookie_registry_stable' => $GLOBALS['integration_cookie_registry_stable'] ?? null,
+			'cookie_issuance_preserved' => $GLOBALS['integration_cookie_issuance_preserved'] ?? null,
+			'cookie_token_policy' => $GLOBALS['integration_cookie_token_policy'] ?? null ];
 		file_put_contents( $ledger, json_encode( $state ), LOCK_EX ); chmod( $ledger, 0600 );
 	} );
 	$handler->init(); $handler->assert_session_ready();
@@ -116,9 +124,23 @@ SDL
 	$schema->getType( 'Provider' )->getValue( 'PASSWORD' )->value = 'password';
 	$schema->getType( 'Provider' )->getValue( 'SITETOKEN' )->value = 'sitetoken';
 	foreach ( $schema->getMutationType()->getFields() as $name => $field ) {
-		$mutation = new Integration_Mutation( $name, static function ( $input ) use ( $name, $handler ) {
+		$mutation = new Integration_Mutation( $name, static function ( $input ) use ( $name, $handler, $case ) {
 			integration_event( 'callback.' . $name );
 			if ( 'login' === $name ) { HandlerContractBoundary::$user = 23; return [ 'id' => 23, 'user' => (object) [ 'ID' => 23 ], 'authToken' => 'synthetic-auth-token' ]; }
+			if ( 'existing-token-cart-cookie' === $case ) {
+				$registry = $GLOBALS['wp_filter']['graphql_response_headers_to_send']; $before = $registry->callbacks;
+				$issued = new ReflectionProperty( $handler, '_issuing_new_token' );
+				$expiration = new ReflectionProperty( $handler, '_session_expiration' );
+				$timestamp = new ReflectionProperty( $handler, '_session_issued' );
+				$claims_before = [ $timestamp->getValue( $handler ), $expiration->getValue( $handler ) ];
+				$unissued = false === (bool) $issued->getValue( $handler );
+				$no_header_before = ! isset( apply_filters( 'graphql_response_headers_to_send', [] )['woocommerce-session'] );
+				WC()->cart->session->maybe_set_cart_cookies();
+				$headers = apply_filters( 'graphql_response_headers_to_send', [] );
+				$GLOBALS['integration_cookie_registry_stable'] = $registry === $GLOBALS['wp_filter']['graphql_response_headers_to_send'] && $before === $registry->callbacks;
+				$GLOBALS['integration_cookie_issuance_preserved'] = $unissued && true === (bool) $issued->getValue( $handler ) && $claims_before === [ $timestamp->getValue( $handler ), $expiration->getValue( $handler ) ];
+				$GLOBALS['integration_cookie_token_policy'] = $no_header_before && is_string( $headers['woocommerce-session'] ?? null ) && $headers['woocommerce-session'] === $handler->build_token();
+			}
 			$handler->set( 'cart', 'synthetic-callback-cart' ); return [ 'success' => true, 'customer' => [] ];
 		} );
 		$field->resolveFn = $mutation->resolver();
@@ -137,7 +159,7 @@ SDL
 	}
 	if ( 'unavailable-dominates' === $case ) { $db->report_failed = true; $GLOBALS['integration_forbid_translation'] = true; $GLOBALS['integration_translations'] = 0; }
 	$query = match ( $case ) {
-		'ordinary-success' => 'mutation { addToCart(input:{}) { success customer { sessionToken } } }',
+		'ordinary-success', 'existing-token-cart-cookie' => 'mutation { addToCart(input:{}) { success customer { sessionToken } } }',
 		'mixed-cart-first' => 'mutation { addToCart(input:{}) { success } login(input:{provider:PASSWORD}) { authToken } }',
 		'later-filtered-input' => 'mutation { addToCart(input:{}) { success customer { sessionToken } } checkout(input:{}) { success } }',
 		'detached-input-rejection', 'detached-unavailable-dominates' => 'mutation { login(input:{provider:PASSWORD}) { authToken } }',
@@ -147,7 +169,11 @@ SDL
 	$response = GraphQL::executeQuery( $schema, $query, null, $context )->toArray();
 	$GLOBALS['integration_partial'] = true === ( $response['data']['addToCart']['success'] ?? false );
 	$GLOBALS['integration_partial_token'] = is_string( $response['data']['addToCart']['customer']['sessionToken'] ?? null );
-	header( 'woocommerce-session: synthetic-queued-cart' ); header( 'Authorization: synthetic-auth' );
+	if ( 'existing-token-cart-cookie' === $case ) {
+		$headers = apply_filters( 'graphql_response_headers_to_send', [] );
+		if ( isset( $headers['woocommerce-session'] ) ) { header( 'woocommerce-session: ' . $headers['woocommerce-session'] ); }
+	} else { header( 'woocommerce-session: synthetic-queued-cart' ); }
+	header( 'Authorization: synthetic-auth' );
 	header( 'Set-Cookie: woocommerce_cart_hash=synthetic; Path=/', false ); header( 'Set-Cookie: unrelated=preserved; Path=/', false );
 	apply_filters( 'graphql_process_http_request_response', $response, null, null, null, null, 200 );
 	exit( 3 );
