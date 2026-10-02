@@ -115,7 +115,7 @@ final class Cart_Session_Operation {
 		if ( ! $this->handler->is_graphql_session() ) {
 			return $pre;
 		}
-		// WPGraphQL's hook carries the configured type name (e.g. Login), while
+		// WPGraphQL's hook carries the configured mutation name (e.g. checkout or Login), while
 		// its actual root field is lcfirst($mutation_name), including Headless Login.
 		$name = is_string( $mutation_name ) ? lcfirst( $mutation_name ) : null;
 		if ( $this->failed || ! $info instanceof ResolveInfo || $this->operation !== $info->operation
@@ -172,7 +172,7 @@ final class Cart_Session_Operation {
 
 	/** Compare-only terminal observation, never return a permit or invoke a callback. */
 	public function capture_checkout_origin( $pre, $name, $callback, $input, $context, $info ) {
-		if ( ! $this->handler->is_graphql_session() || 'Checkout' !== $name ) { return $pre; }
+		if ( ! $this->handler->is_graphql_session() || 'checkout' !== $name ) { return $pre; }
 		$this->checkout_boundary();
 		if ( $this->failed || null !== $pre || ! $info instanceof ResolveInfo || ! is_array( $input )
 			|| $info !== $this->checkout_field_info || $context !== $this->checkout_field_context

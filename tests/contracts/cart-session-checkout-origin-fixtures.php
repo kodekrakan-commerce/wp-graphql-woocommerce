@@ -66,6 +66,7 @@ namespace {
 	require $gql . '/src/AppContext.php';
 	require $gql . '/src/Utils/InstrumentSchema.php';
 	require $gql . '/src/Type/WPMutationType.php';
+	require $gql . '/src/Registry/TypeRegistry.php';
 	require $owner . '/vendor/autoload.php';
 	foreach ( [ 'class-cart-session-error.php', 'class-cart-session-operation.php', 'class-cart-session-storage.php', 'class-session-transaction-manager.php', 'class-cart-session-http-boundary.php', 'class-cart-session-lifecycle.php', 'class-ql-session-handler.php' ] as $file ) { require $owner . '/includes/utils/' . $file; }
 
@@ -78,10 +79,26 @@ namespace {
 	use GraphQL\Type\Definition\ObjectType;
 	use WPGraphQL\Utils\InstrumentSchema;
 	final class Integration_Mutation extends \WPGraphQL\Type\WPMutationType {
-		/** Only the WP type registry/constructor boundary is bypassed. Real resolver runs. */
-		public function __construct( $name, $callback ) { $this->mutation_name = ucfirst( $name ); $this->config = [ 'mutateAndGetPayload' => $callback ]; }
+		/** Constructor/materialization substitute preserves config.name exactly,
+		 * matching actual TypeRegistry. Native-registration case uses both actual
+		 * registry registration and actual WPMutationType constructor/resolver. */
+		public function __construct( $name, $callback ) { $this->mutation_name = $name; $this->config = [ 'mutateAndGetPayload' => $callback ]; }
 		public function resolver() { return $this->get_resolver(); }
 		public function replace($entry) { $this->config['mutateAndGetPayload']=$entry; }
+	}
+	/** Native registration executes; only schema type materialization is recorded. */
+	final class Origin_Native_Registry extends \WPGraphQL\Registry\TypeRegistry {
+		public $fields = [];
+		public function __construct() {}
+		public function get_excluded_mutations(): array { return []; }
+		public function has_type(string $name): bool { return false; }
+		public function register_object_type(string $name,array $config): void {}
+		public function register_input_type(string $name,array $config): void {}
+		public function register_field(string $type,string $name,array $config): void { $this->fields[$name]=$config; }
+	}
+	function register_graphql_mutation($name,array $config) {
+		$GLOBALS['origin_registration_name']=$name;
+		$GLOBALS['origin_registry']->register_mutation($name,$config);
 	}
 	function get_option($name) { return 'yes'; }
 	function wc_ship_to_billing_address_only() { return false; }
@@ -92,12 +109,12 @@ namespace {
 	function origin_expect($value) { if(!$value){throw new \RuntimeException('Origin contract assertion failed.');} }
 	function origin_registration($required) { if($GLOBALS['origin_final']){$GLOBALS['origin_final_policy_calls']++;return $GLOBALS['origin_case']==='late-policy';}return false; }
 	function origin_input($input,$context,$info,$name) {
-		if($name==='Checkout'&&$GLOBALS['origin_case']==='filtered-input'){$input['clientMutationId']='filtered';}
+		if($name==='checkout'&&$GLOBALS['origin_case']==='filtered-input'){$input['clientMutationId']='filtered';}
 		return $input;
 	}
 	function origin_response($payload,$input,$unfiltered,$context,$info,$name) { $GLOBALS['origin_response_calls']++; }
 	function origin_pre($pre,$name,$callback,$input,$context,$info) {
-		if($name!=='Checkout'){return $pre;} $case=$GLOBALS['origin_case'];$GLOBALS['origin_info']=$info;$GLOBALS['origin_context']=$context;
+		if($name!=='checkout'){return $pre;} $case=$GLOBALS['origin_case'];$GLOBALS['origin_info']=$info;$GLOBALS['origin_context']=$context;
 		if($case==='nonnull-pre'){return ['id'=>1];}
 		if($case==='nonnull-pre-callback'){return static function(){ $GLOBALS['origin_effects']['account']++;return []; };}
 		if($case==='same-source-replacement'){$GLOBALS['origin_mutation']->replace(\WPGraphQL\WooCommerce\Mutation\Checkout::mutate_and_get_payload());}
@@ -131,7 +148,7 @@ namespace {
 		if($GLOBALS['origin_case']==='recursive-entry'){$GLOBALS['origin_entry']($input,$context,$info);}
 		if($GLOBALS['origin_case']==='recursive-capture'){
 			$op=(new \ReflectionProperty(QL_Session_Handler::class,'owned_operation'))->getValue(WC()->session);
-			$op->capture_checkout_origin(null,'Checkout',$GLOBALS['origin_entry'],$input,$context,$info);
+			$op->capture_checkout_origin(null,'checkout',$GLOBALS['origin_entry'],$input,$context,$info);
 		}
 		if($GLOBALS['origin_case']==='late-posted'){$data['createaccount']=1;}
 		if($GLOBALS['origin_case']==='consume-registry-swap'){$data['createaccount']=1;$GLOBALS['wp_filter']['graphql_mutation_response']=clone $GLOBALS['wp_filter']['graphql_mutation_response'];}
@@ -188,7 +205,19 @@ namespace {
 	do_action('do_graphql_request');
 	$schema=BuildSchema::build('input EmptyInput { clientMutationId:String } type Payload { id:Int success:Boolean } type Query { ok:Boolean } type Mutation { checkout(input:EmptyInput!):Payload addToCart(input:EmptyInput!):Payload }');
 	$entry=\WPGraphQL\WooCommerce\Mutation\Checkout::mutate_and_get_payload();$GLOBALS['origin_entry']=$entry;
-	$mutation=new Integration_Mutation('checkout',$entry);$GLOBALS['origin_mutation']=$mutation;$schema->getMutationType()->getField('checkout')->resolveFn=$mutation->resolver();
+	if($case==='native-registration'){
+		$GLOBALS['origin_registry']=$registry=new Origin_Native_Registry();
+		\WPGraphQL\WooCommerce\Mutation\Checkout::register_mutation();
+		origin_expect($GLOBALS['origin_registration_name']==='checkout'&&$registry->fields['checkout']['name']==='checkout');
+		$resolver=$registry->fields['checkout']['resolve'];
+		$mutation=(new \ReflectionFunction($resolver))->getClosureThis();
+		origin_expect(get_class($mutation)===\WPGraphQL\Type\WPMutationType::class&&
+		 (new \ReflectionProperty(\WPGraphQL\Type\WPMutationType::class,'mutation_name'))->getValue($mutation)==='checkout');
+		$schema->getMutationType()->getField('checkout')->resolveFn=$resolver;
+	}else{
+		$mutation=new Integration_Mutation('checkout',$entry);$schema->getMutationType()->getField('checkout')->resolveFn=$mutation->resolver();
+	}
+	$GLOBALS['origin_mutation']=$mutation;
 	$cart_mutation=new Integration_Mutation('addToCart',static function($input,$ctx,$ri){$GLOBALS['origin_info']=$ri;$GLOBALS['origin_context']=$ctx;return ['success'=>true];});$schema->getMutationType()->getField('addToCart')->resolveFn=$cart_mutation->resolver();
 	foreach($schema->getTypeMap() as $type){if($type instanceof ObjectType&&0!==strpos($type->name,'__')){InstrumentSchema::instrument_resolvers($type,$type->name);}}
 	$query=match($case){

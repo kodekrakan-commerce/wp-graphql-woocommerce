@@ -5,11 +5,13 @@
  * Pinned controlled WC/Router/SQL/cache/auth adapter, no site/DB/payment proof.
  * Configure WL_WORDPRESS_SOURCE, WL_WOOCOMMERCE_SOURCE, WL_WPGRAPHQL_SOURCE,
  * WL_MU_PLUGINS_SOURCE. Native subprocesses permit real emit/exit/shutdown.
+ * --cli-only skips the localhost server; it does not claim HTTP header proof.
  */
 error_reporting( E_ALL ); ini_set( 'display_errors', '0' ); ini_set( 'log_errors', '0' );
-const INTEGRATION_FIXTURE_SHA = 'c2a1c37933096e0c0f4de9bf95e50f7265770da8676eb8b7aba5c13852065418';
+const INTEGRATION_FIXTURE_SHA = '5cc3c4d56ea19f307df10d4faed0d7aa0edb577afd0fbc2c46ba7e9c782aa33d';
 const INTEGRATION_ADAPTER_SHA = '9566dc98d41d8894d316340a85f56b752f3d9b1fafd3e604cbcdca0b13d39617';
 const INTEGRATION_HANDLER_SHA = '38d929e5c2aaac50e753f8d5f7ff097c70816d8a09660cbe0d77118c58308fc3';
+const INTEGRATION_RESULT_SHA = '899f37cf608b43eddba734604ba301e178b02f7bf12edf0b8b920b4053435fd9';
 $owner = dirname( __DIR__, 2 ); $endpoint = __DIR__ . '/cart-session-lifecycle-integration-fixture.php';
 $source_files = [ 'handler' => $owner . '/includes/utils/class-ql-session-handler.php', 'fixture' => $endpoint, 'adapter' => __DIR__ . '/cart-session-owned-handler-fixtures.php' ];
 foreach ( [ 'handler' => INTEGRATION_HANDLER_SHA, 'fixture' => INTEGRATION_FIXTURE_SHA, 'adapter' => INTEGRATION_ADAPTER_SHA ] as $name => $hash ) {
@@ -22,9 +24,12 @@ foreach ( [ 'operation' => 'class-cart-session-operation.php', 'lifecycle' => 'c
 $wp = rtrim( getenv( 'WL_WORDPRESS_SOURCE' ), '/' ); $gql = rtrim( getenv( 'WL_WPGRAPHQL_SOURCE' ), '/' );
 $source_files['WP_Hook'] = $wp . '/wp-includes/class-wp-hook.php'; $source_files['plugin.php'] = $wp . '/wp-includes/plugin.php';
 $source_files['InstrumentSchema'] = $gql . '/src/Utils/InstrumentSchema.php'; $source_files['WPMutationType'] = $gql . '/src/Type/WPMutationType.php'; $source_files['AppContext'] = $gql . '/src/AppContext.php';
+$source_files['ExecutionResult'] = $gql . '/vendor/webonyx/graphql-php/src/Executor/ExecutionResult.php';
+if ( ! hash_equals( INTEGRATION_RESULT_SHA, hash_file( 'sha256', $source_files['ExecutionResult'] ) ) ) { fwrite( STDERR, "Reviewed native ExecutionResult source differs.\n" ); exit( 2 ); }
 $source_before = array_map( fn( $file ) => hash_file( 'sha256', $file ), $source_files );
 putenv( 'WL_INTEGRATION_FIXTURE_SHA=' . INTEGRATION_FIXTURE_SHA ); putenv( 'WL_INTEGRATION_ADAPTER_SHA=' . INTEGRATION_ADAPTER_SHA ); putenv( 'WL_INTEGRATION_HANDLER_SHA=' . INTEGRATION_HANDLER_SHA );
-putenv('WL_INTEGRATION_OPERATION_SHA=e289f01f82a4865e488ca30e9d230fb1791727c3248002e4d712b8d9a9d1e2fa');
+putenv('WL_INTEGRATION_OPERATION_SHA=4091afb3ad9dddf776e89b91b51c199ba2e6877081511ebfab03c0d60d2a5e1c');
+putenv( 'WL_INTEGRATION_RESULT_SHA=' . INTEGRATION_RESULT_SHA );
 $total = 0; $failures = 0;
 function integration_expect( $condition ) { if ( ! $condition ) { throw new RuntimeException( 'Sanitized composed integration assertion failed.' ); } }
 function integration_case( $name, callable $action ) {
@@ -77,6 +82,21 @@ integration_case( 'trusted later final-input hold drops actual earlier sibling d
 	integration_expect( true === $state['rejection'] && true === $state['partial_data_before_terminal'] && true === $state['partial_token_before_terminal'] );
 	integration_expect( in_array( 'callback.addToCart', $state['events'], true ) && in_array( 'trusted.checkout.input', $state['events'], true ) && ! in_array( 'callback.checkout', $state['events'], true ) && 1 === count( array_filter( $state['calls'], fn( $call ) => 'abort' === $call ) ) );
 } );
+foreach ( [ 'native-rejection', 'native-rejection-throw', 'native-rejection-health', 'native-rejection-cohort',
+	'native-rejection-empty', 'native-rejection-malformed', 'native-rejection-raw-errors', 'native-rejection-error-object',
+	'native-rejection-subclass', 'native-rejection-json-object', 'native-rejection-source' ] as $case ) {
+	integration_case( $case . ' formats genuine HTTP result once while owned or rejects before formatting', function () use ( $case ) {
+		[ $response, $state ] = integration_child( $case );
+		integration_assert_rejection( $response, $state, 'native-rejection' === $case ? 'WL_CART_SESSION_TRANSITION_INVALID' : 'WL_CART_SESSION_UNAVAILABLE' );
+		integration_expect( true === $state['partial_data_before_terminal'] && true === $state['partial_token_before_terminal'] && 0 === $state['discarded_serialize_calls'] );
+		$not_formatted = in_array( $case, [ 'native-rejection-subclass', 'native-rejection-json-object', 'native-rejection-source' ], true );
+		integration_expect( ( $not_formatted ? 0 : 1 ) === $state['format_calls'] && ! $not_formatted === $state['format_owned'] );
+		if ( ! in_array( $case, [ 'native-rejection-subclass', 'native-rejection-json-object' ], true ) ) {
+			integration_expect( 'GraphQL\\Executor\\ExecutionResult' === $state['result_class'] );
+		}
+		integration_expect( 1 === count( array_filter( $state['calls'], fn( $call ) => 'abort' === $call ) ) );
+	} );
+}
 integration_case( 'detached final-input rejection remains errors-only after clean old-scope release', function () {
 	[ $response, $state ] = integration_child( 'detached-input-rejection' ); integration_assert_rejection( $response, $state );
 	integration_expect( true === $state['rejection'] && true === $state['detached'] && ! in_array( 'callback.login', $state['events'], true ) );
@@ -108,6 +128,7 @@ foreach ( ['retirement','creation'] as $kind ) { foreach ( ['present','missing',
 } }
 
 // Native queued-header status is observable only through localhost HTTP.
+if ( ! in_array( '--cli-only', $argv, true ) ) {
 $socket = stream_socket_server( 'tcp://127.0.0.1:0', $errno, $error );
 if ( false === $socket ) { integration_case( 'localhost native HTTP available', fn() => integration_expect( false ) ); }
 else {
@@ -118,7 +139,7 @@ else {
 		integration_expect( is_resource( $server ) ); fclose( $pipes[0] ); $ready = false;
 		for ( $attempt = 0; $attempt < 100; $attempt++ ) { $connection = @stream_socket_client( 'tcp://' . $address, $errno, $error, 0.1 ); if ( $connection ) { fclose( $connection ); $ready = true; break; } usleep( 20000 ); }
 		integration_expect( $ready );
-		foreach ( [ 'mixed-login-first' => 200, 'later-filtered-input' => 200, 'detached-input-rejection' => 200, 'unavailable-dominates' => 503 ] as $case => $status ) {
+		foreach ( [ 'mixed-login-first' => 200, 'later-filtered-input' => 200, 'native-rejection' => 200, 'detached-input-rejection' => 200, 'unavailable-dominates' => 503 ] as $case => $status ) {
 			integration_case( $case . ' actual HTTP withholds queued cart credentials and partial data', function () use ( $address, $case, $status ) {
 				$body = file_get_contents( 'http://' . $address . '/?case=' . $case, false, stream_context_create( [ 'http' => [ 'ignore_errors' => true, 'timeout' => 5 ] ] ) );
 				$headers = $http_response_header ?? []; $map = []; integration_expect( str_contains( $headers[0] ?? '', ' ' . $status . ' ' ) );
@@ -138,6 +159,7 @@ else {
 		} );
 	} catch ( Throwable $ignored ) { integration_case( 'native localhost fixture startup', fn() => integration_expect( false ) ); }
 	finally { if ( is_resource( $server ) ) { proc_terminate( $server ); proc_close( $server ); } unlink( $ledger ); }
+}
 }
 $source_after = array_map( fn( $file ) => hash_file( 'sha256', $file ), $source_files );
 integration_case( 'composed actual source cohort stays stable across subprocesses', fn() => integration_expect( $source_before === $source_after ) );

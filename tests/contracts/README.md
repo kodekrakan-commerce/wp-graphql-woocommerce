@@ -42,7 +42,11 @@ affected-behavior recheck.
 | Composed integration | Actual handler, operation coordinator, lifecycle, storage and HTTP boundary; genuine hook dispatcher, GraphQL instrumentation/mutation types/executor and AppContext; rejected mixed operations and later filtered input cannot publish partial data or cart credentials; marker denial constructs customer/cart before the request guard and exercises shutdown persistence | Customer/cart, router, authentication, SQL and cache; AppContext is constructed without site bootstrap |
 | Checkout origin | Actual retained self-bound Checkout closure, preparation and final customer branch with the handler, operation and lifecycle; genuine WP hooks, GraphQL instrumentation, mutation type and executor; exact invocation binding, immutable single-root eligibility, one-use consumption and finally cleanup | Controlled before-checkout caller reflects into the actual protected customer branch; natural validation, session update and order processing are omitted; customer/cart, Router, authentication, SQL and cache remain substitutes |
 
-The dormant checkout-origin runner has 35 source contracts. It checks source,
+The dormant checkout-origin runner has 36 source contracts. A native-registration
+case runs actual Checkout registration, TypeRegistry registration and WPMutationType
+construction/resolution; only schema type materialization is recorded. It preserves
+the native lowercase `checkout` name. The previous fixture's capitalization masked
+a real capture defect. The runner checks source,
 receiver, hook order and argument count at capture, entry and final consumption,
 including input/context/Info/path drift, replacement closures, recapture, reentry,
 late policy and registry changes. Distinct ordinary noncreating roots remain valid;
@@ -50,7 +54,9 @@ they cannot acquire single-root creation eligibility. Both the early account hol
 and final native creation-branch hold remain unconditional. No creation reservation,
 native account/authentication, cookie adoption or checkout/order path is activated.
 The older 56 operation cases retain a synthetic lowercase checkout callback and
-qualify preflight holds only; the new runner supplies canonical Checkout binding.
+qualify preflight holds only. Their four synthetic checkout controls now require
+rejection before callback effects, because they cannot supply the default factory
+binding. The new runner supplies canonical Checkout binding.
 
 The composed positive control completes one checked write, seal and release.
 Rejection controls prevent the captured customer/cart/session flush, retain the
@@ -62,6 +68,16 @@ seals and releases healthy storage before disabling cart-session construction,
 keeps handler writes inert and retains `WL_CART_SESSION_INVALID`. Its controlled
 Router catch models status 500; later storage uncertainty dominates as 503.
 This does not establish installed WooCommerce/Router or native SQL behavior.
+
+The 32 composed cases now pass the actual Executor's untouched `ExecutionResult`
+into the lifecycle, matching native single-request HTTP. Rejected object responses
+format once through the exact pinned class before terminal discard, then repeat
+health/cohort checks and publish only validated plain errors. Partial data and
+extensions are withheld; formatter failures, malformed errors and unsupported
+objects remain unavailable. The existing intentional auth-detach path has already
+fenced its old grant before formatting; it cannot rehydrate or flush that cart.
+Router's thrown-error catch still supplies arrays. Earlier fixture `toArray()`
+conversion masked the native object rejection defect.
 
 The HTTP boundary drops representational metadata such as a queued
 `Content-Encoding` before writing its preencoded JSON. Its post-emission buffer

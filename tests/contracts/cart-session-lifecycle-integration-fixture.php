@@ -16,7 +16,7 @@ namespace {
 	function integration_event( $event ) { HandlerContractBoundary::event( $event ); }
 	function integration_trusted_input( $input, $context, $info, $name ) {
 		$case=$GLOBALS['integration_current_case'];$db=$GLOBALS['integration_db'];
-		if ( 'Checkout' === $name ) { $input['account'] = [ 'username' => 'synthetic' ]; integration_event( 'trusted.checkout.input' ); }
+		if ( 'checkout' === $name ) { $input['account'] = [ 'username' => 'synthetic' ]; integration_event( 'trusted.checkout.input' ); }
 		if ( 'Login' === $name ) {
 			$input['provider'] = 'sitetoken'; integration_event( 'trusted.login.input' );
 			if ( 'detached-unavailable-dominates' === $case ) { $db->report_failed = true; $GLOBALS['integration_forbid_translation'] = true; $GLOBALS['integration_translations'] = 0; }
@@ -89,13 +89,16 @@ namespace {
 	use WPGraphQL\Utils\InstrumentSchema;
 	final class Integration_Mutation extends \WPGraphQL\Type\WPMutationType {
 		/** Only the WP type registry/constructor boundary is bypassed. Real resolver runs. */
-		public function __construct( $name, $callback ) { $this->mutation_name = ucfirst( $name ); $this->config = [ 'mutateAndGetPayload' => $callback ]; }
+		public function __construct( $name, $callback ) { $this->mutation_name = 'login' === $name ? 'Login' : $name; $this->config = [ 'mutateAndGetPayload' => $callback ]; }
 		public function resolver() { return $this->get_resolver(); }
 	}
 	$case = 'cli' === PHP_SAPI ? ( $argv[1] ?? '' ) : ( $_GET['case'] ?? '' );
+	$native_result_case = str_starts_with( $case, 'native-rejection' );
 	$ledger = 'cli' === PHP_SAPI ? ( $argv[2] ?? '' ) : getenv( 'WL_INTEGRATION_HTTP_LEDGER' );
 	$GLOBALS['integration_translations'] = 0; $GLOBALS['integration_forbid_translation'] = false;
 	$GLOBALS['integration_creation_order'] = false;
+	$GLOBALS['integration_format_calls'] = 0; $GLOBALS['integration_format_owned'] = false;
+	$GLOBALS['integration_discarded_serialize_calls'] = 0;
 	HandlerContractBoundary::$user = 0; HandlerContractBoundary::$graphql = true;
 	HandlerContractBoundary::$cache = [ WC_SESSION_CACHE_GROUP . ':wc_' . WC_SESSION_CACHE_GROUP . '_cache_prefix' => 'fixed-prefix' ];
 	HandlerContractBoundary::$woocommerce = (object) [ 'session' => null, 'customer' => null, 'cart' => null ];
@@ -121,6 +124,7 @@ namespace {
 		'WC_Customer' => $fixture_hash, 'WC_Cart' => $fixture_hash, 'WC_Cart_Session' => $fixture_hash,
 		QL_Session_Handler::class => getenv( 'WL_INTEGRATION_HANDLER_SHA' ),
 		\WPGraphQL\WooCommerce\Utils\Cart_Session_Operation::class => getenv( 'WL_INTEGRATION_OPERATION_SHA' ),
+		\GraphQL\Executor\ExecutionResult::class => 'native-rejection-source' === $case ? str_repeat( '0', 64 ) : getenv( 'WL_INTEGRATION_RESULT_SHA' ),
 	] );
 	define( 'WOOGRAPHQL_CART_SESSION_CALLBACK_COHORT', [[ 'hook'=>'graphql_mutation_input','kind'=>'function','function'=>'integration_trusted_input','priority'=>10,'accepted_args'=>4,'stable_registry'=>true,'nonstreaming'=>true,'sha256'=>$fixture_hash ]] );
 	$handler = new QL_Session_Handler(); WC()->session = $handler;
@@ -135,6 +139,9 @@ namespace {
 			'request_status' => $GLOBALS['integration_request_status'] ?? null, 'emitted_status' => http_response_code(),
 			'translations' => $GLOBALS['integration_translations'], 'partial_data_before_terminal' => $GLOBALS['integration_partial'] ?? false, 'partial_token_before_terminal' => $GLOBALS['integration_partial_token'] ?? false,
 			'cookie_registry_stable' => $GLOBALS['integration_cookie_registry_stable'] ?? null,
+			'result_class' => $GLOBALS['integration_result_class'] ?? null,
+			'format_calls' => $GLOBALS['integration_format_calls'], 'format_owned' => $GLOBALS['integration_format_owned'],
+			'discarded_serialize_calls' => $GLOBALS['integration_discarded_serialize_calls'],
 			'cookie_issuance_preserved' => $GLOBALS['integration_cookie_issuance_preserved'] ?? null,
 			'cookie_token_policy' => $GLOBALS['integration_cookie_token_policy'] ?? null ];
 		file_put_contents( $ledger, json_encode( $state ), LOCK_EX ); chmod( $ledger, 0600 );
@@ -145,7 +152,7 @@ namespace {
 	if ( $marker_case && 'replacement' === $marker_parts[2] ) { $GLOBALS['wpdb'] = new HandlerContractDatabase(); }
 	if ( $marker_case && 'uncertain' === $marker_parts[2] ) { $db->report_failed = true; }
 	$GLOBALS['integration_current_case']=$case;$GLOBALS['integration_db']=$db;
-	if ( in_array( $case, [ 'later-filtered-input', 'detached-input-rejection', 'detached-unavailable-dominates' ], true ) ) { add_filter('graphql_mutation_input','integration_trusted_input',10,4); }
+	if ( $native_result_case || in_array( $case, [ 'later-filtered-input', 'detached-input-rejection', 'detached-unavailable-dominates' ], true ) ) { add_filter('graphql_mutation_input','integration_trusted_input',10,4); }
 	$status = 200;
 	try { do_action( 'do_graphql_request' ); }
 	catch ( \WPGraphQL\WooCommerce\Utils\Cart_Session_Error $error ) {
@@ -198,7 +205,7 @@ SDL
 	$schema->getType( 'Customer' )->getField( 'sessionToken' )->resolveFn = static fn() => $handler->build_customer_token();
 	foreach ( $schema->getTypeMap() as $type ) { if ( $type instanceof ObjectType && 0 !== strpos( $type->name, '__' ) ) { InstrumentSchema::instrument_resolvers( $type, $type->name ); } }
 	if ( 'unavailable-dominates' === $case ) { $db->report_failed = true; $GLOBALS['integration_forbid_translation'] = true; $GLOBALS['integration_translations'] = 0; }
-	$query = $marker_case ? 'mutation { addToCart(input:{}) { success customer { sessionToken } } }' : match ( $case ) {
+	$query = $marker_case ? 'mutation { addToCart(input:{}) { success customer { sessionToken } } }' : match ( $native_result_case ? 'later-filtered-input' : $case ) {
 		'ordinary-success', 'existing-token-cart-cookie' => 'mutation { addToCart(input:{}) { success customer { sessionToken } } }',
 		'mixed-cart-first' => 'mutation { addToCart(input:{}) { success } login(input:{provider:PASSWORD}) { authToken } }',
 		'later-filtered-input' => 'mutation { addToCart(input:{}) { success customer { sessionToken } } checkout(input:{}) { success } }',
@@ -206,9 +213,42 @@ SDL
 		default => 'mutation { login(input:{provider:PASSWORD}) { authToken } addToCart(input:{}) { success } }',
 	};
 	$context = ( new \ReflectionClass( \WPGraphQL\AppContext::class ) )->newInstanceWithoutConstructor();
-	$response = GraphQL::executeQuery( $schema, $query, null, $context )->toArray();
-	$GLOBALS['integration_partial'] = true === ( $response['data']['addToCart']['success'] ?? false );
-	$GLOBALS['integration_partial_token'] = is_string( $response['data']['addToCart']['customer']['sessionToken'] ?? null );
+	// Preserve the genuine single-HTTP ExecutionResult through the terminal hook.
+	// Only the controlled Router catch for a thrown bootstrap error uses an array.
+	$response = GraphQL::executeQuery( $schema, $query, null, $context );
+	$GLOBALS['integration_partial'] = true === ( $response->data['addToCart']['success'] ?? false );
+	$GLOBALS['integration_partial_token'] = is_string( $response->data['addToCart']['customer']['sessionToken'] ?? null );
+	if ( $marker_case ) { $response = $response->toArray(); }
+	if ( $native_result_case ) {
+		$response->data['discarded'] = new class implements \JsonSerializable {
+			public function jsonSerialize(): mixed { $GLOBALS['integration_discarded_serialize_calls']++; return 'must-not-publish'; }
+		};
+		$response->setErrorsHandler( static function ( $errors, $formatter ) use ( $case, $handler, $db ) {
+			$GLOBALS['integration_format_calls']++; integration_event( 'response.format' );
+			$GLOBALS['integration_format_owned'] = $handler->has_owned_scope() && ! $handler->get_owned_lifecycle()->is_terminal()
+				&& ! in_array( 'abort', $db->calls, true ) && ! in_array( 'release', $db->calls, true );
+			if ( 'native-rejection-throw' === $case ) { throw new \RuntimeException( 'Controlled formatter failure.' ); }
+			if ( 'native-rejection-health' === $case ) { $db->report_failed = true; }
+			if ( 'native-rejection-cohort' === $case ) { $GLOBALS['wp_filter']['graphql_mutation_input'] = clone $GLOBALS['wp_filter']['graphql_mutation_input']; }
+			if ( 'native-rejection-empty' === $case ) { return []; }
+			if ( 'native-rejection-malformed' === $case ) { return [ [ 'message' => 7 ] ]; }
+			if ( 'native-rejection-raw-errors' === $case ) { return $errors; }
+			$formatted = array_map( $formatter, $errors );
+			if ( 'native-rejection-error-object' === $case ) { $formatted[0]['extensions']['unsafe'] = new \stdClass(); }
+			return $formatted;
+		} );
+		if ( 'native-rejection-subclass' === $case ) {
+			$response = new class( $response->data, $response->errors ) extends \GraphQL\Executor\ExecutionResult {
+				public function toArray( int $debug = 0 ): array { $GLOBALS['integration_format_calls']++; return parent::toArray( $debug ); }
+			};
+		}
+		if ( 'native-rejection-json-object' === $case ) {
+			$response = new class implements \JsonSerializable {
+				public function jsonSerialize(): mixed { $GLOBALS['integration_format_calls']++; return [ 'errors' => [ [ 'message' => 'must-not-run' ] ] ]; }
+			};
+		}
+	}
+	$GLOBALS['integration_result_class'] = is_object( $response ) ? get_class( $response ) : null;
 	if ( 'existing-token-cart-cookie' === $case ) {
 		$headers = apply_filters( 'graphql_response_headers_to_send', [] );
 		if ( isset( $headers['woocommerce-session'] ) ) { header( 'woocommerce-session: ' . $headers['woocommerce-session'] ); }

@@ -6,6 +6,10 @@ use WPGraphQL\Utils\InstrumentSchema;
 use WPGraphQL\WooCommerce\Utils\Cart_Session_Operation;
 use WPGraphQL\WooCommerce\Utils\Cart_Session_Error;
 
+// Load the genuine default factory for the actual coordinator's shape comparison.
+// Its closure is never invoked by this component fixture.
+require_once $plugin_root . '/includes/mutation/class-checkout.php';
+
 /** Recording lifecycle substitute; actual WC handler is exercised in its separate cohort. */
 final class OperationRecordingHandler {
 	public $detached = false;
@@ -15,6 +19,8 @@ final class OperationRecordingHandler {
 	public $rejected = false;
 	public function is_graphql_session() { return $this->mode; }
 	public function assert_session_ready() { $this->calls[] = 'assert'; if ( $this->failure ) { throw new Cart_Session_Error( $this->failure ); } }
+	/** Recording lifecycle boundary only; actual factory comparison must still run. */
+	public function assert_checkout_origin_boundary() { $this->calls[] = 'checkout-boundary'; }
 	public function reject_cart_operation() { $this->calls[] = 'reject'; if ( 'WL_CART_SESSION_UNAVAILABLE' === $this->failure ) { throw new Cart_Session_Error( $this->failure ); } $this->rejected = true; }
 	public function prepare_session_token() { $this->calls[] = 'session'; }
 	public function prepare_customer_session_token() { $this->calls[] = 'customer'; }
@@ -23,11 +29,11 @@ final class OperationRecordingHandler {
 	public function is_auth_detached() { return $this->detached; }
 }
 
-/** Use the actual WPGraphQL callback/payload hook lifecycle without its WP type registry.
- * Checkout deliberately retains its synthetic lowercase mutation name and callback:
- * these cases qualify operation preflight/account holds, not the canonical Checkout
- * terminal origin binding. cart-session-checkout-origin-contract.php pairs the
- * genuine canonical mutation with the actual retained self-bound Checkout closure.
+/** Actual WPGraphQL callback/payload hooks without its type registry constructor.
+ * The synthetic lowercase checkout callback is deliberately unqualified: inputs
+ * can pass identity preflight, but the actual factory-shape guard must reject it.
+ * Genuine guest/authenticated lower checkout is covered by the 36 actual-factory
+ * origin contracts, including actual native TypeRegistry registration.
  */
 final class OperationMutation extends \WPGraphQL\Type\WPMutationType {
 	public function __construct( $name, $callback ) { $this->mutation_name = in_array( $name, [ 'login', 'logout' ], true ) ? ucfirst( $name ) : $name; $this->config = [ 'mutateAndGetPayload' => $callback ]; }

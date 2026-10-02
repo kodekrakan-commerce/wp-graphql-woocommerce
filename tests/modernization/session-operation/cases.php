@@ -70,8 +70,8 @@ function operation_cases() {
 		[ $schema ] = operation_fixture(); add_filter( 'woocommerce_checkout_registration_required', static fn() => true );
 		$result = \GraphQL\GraphQL::executeQuery( $schema, 'mutation{checkout(input:{}){success}}', null, new \WPGraphQL\AppContext() )->toArray(); op_transition( $result ); op_no_callbacks();
 	};
-	$cases['ordinary-guest-checkout-allowed'] = static function () { [ $result, $handler ] = operation_execute( 'mutation{checkout(input:{}){success}}' ); op_no_errors( $result ); op_assert( ! $handler->detached && in_array( 'checkout', $GLOBALS['op_effects'], true ) ); };
-	$cases['same-account-checkout-allowed'] = static function () { [ $result ] = operation_execute( 'mutation{checkout(input:{account:{username:"synthetic"}}){success}}', [ 'user' => 23, 'guest_checkout' => false ] ); op_no_errors( $result ); };
+	$cases['ordinary-guest-synthetic-checkout-origin-rejected'] = static function () { [ $result, $handler ] = operation_execute( 'mutation{checkout(input:{}){success}}' ); op_transition( $result ); op_no_callbacks(); op_assert( ! $handler->detached && $handler->rejected && in_array( 'checkout-boundary', $handler->calls, true ) ); };
+	$cases['same-account-synthetic-checkout-origin-rejected'] = static function () { [ $result, $handler ] = operation_execute( 'mutation{checkout(input:{account:{username:"synthetic"}}){success}}', [ 'user' => 23, 'guest_checkout' => false ] ); op_transition( $result ); op_no_callbacks(); op_assert( $handler->rejected && in_array( 'checkout-boundary', $handler->calls, true ) ); };
 	$cases['session-invalid-blocks-login-before-detach'] = static function () { [ $result, $handler ] = operation_execute( 'mutation{login(input:{provider:PASSWORD}){authToken}}', [ 'failure' => 'WL_CART_SESSION_INVALID' ] ); op_assert( 'WL_CART_SESSION_INVALID' === $result['errors'][0]['extensions']['code'] ); op_no_callbacks(); op_assert( ! $handler->detached ); };
 	$cases['batches-rejected-before-dispatch-and-latched'] = static function () {
 		[ $schema, $handler ] = operation_fixture(); $dispatch = 0;
@@ -124,19 +124,19 @@ function operation_cases() {
 		};
 	}
 	foreach ( [ 'mutation{login(input:{provider:PASSWORD}){clientMutationId}}', 'mutation{checkout(input:{}){success}}' ] as $index => $query ) {
-		$cases['safe-input-filter-still-allowed-' . $index] = static function () use ( $query, $index ) {
+		$cases[ 0 === $index ? 'safe-input-filter-still-allowed-0' : 'safe-checkout-input-passes-preflight-but-synthetic-origin-rejected' ] = static function () use ( $query, $index ) {
 			[ $schema, $handler ] = operation_fixture();
 			add_filter( 'graphql_mutation_input', static function ( $input ) { $input['clientMutationId'] = 'synthetic-filter-value'; return $input; }, PHP_INT_MAX, 1 );
-			add_filter( 'graphql_pre_mutate_and_get_payload', static function ( $pre, $name, $callback, $input ) { op_assert( 'synthetic-filter-value' === $input['clientMutationId'] ); $GLOBALS['op_effects'][] = 'safe-pre-mutation'; return $pre; }, 0, 4 );
-			$result = \GraphQL\GraphQL::executeQuery( $schema, $query, null, new \WPGraphQL\AppContext() )->toArray(); op_no_errors( $result );
-			op_assert( in_array( 'safe-pre-mutation', $GLOBALS['op_effects'], true ) && in_array( 0 === $index ? 'login' : 'checkout', $GLOBALS['op_effects'], true ) );
-			if ( 0 === $index ) { op_detached_clean( $handler ); } else { op_assert( ! $handler->detached ); }
+			add_filter( 'graphql_pre_mutate_and_get_payload', static function ( $pre, $name, $callback, $input ) use ( $handler, $index ) { op_assert( 'synthetic-filter-value' === $input['clientMutationId'] ); if ( 0 === $index ) { $GLOBALS['op_effects'][] = 'safe-pre-mutation'; } else { $handler->calls[] = 'safe-pre-input'; } return $pre; }, 0, 4 );
+			$result = \GraphQL\GraphQL::executeQuery( $schema, $query, null, new \WPGraphQL\AppContext() )->toArray();
+			if ( 0 === $index ) { op_no_errors( $result ); op_assert( in_array( 'safe-pre-mutation', $GLOBALS['op_effects'], true ) && in_array( 'login', $GLOBALS['op_effects'], true ) ); op_detached_clean( $handler ); }
+			else { op_transition( $result ); op_no_callbacks(); op_assert( ! $handler->detached && $handler->rejected && in_array( 'safe-pre-input', $handler->calls, true ) && in_array( 'checkout-boundary', $handler->calls, true ) ); }
 		};
 	}
-	$cases['same-account-filtered-checkout-account-still-allowed'] = static function () {
+	$cases['same-account-filtered-input-passes-preflight-but-synthetic-origin-rejected'] = static function () {
 		[ $schema, $handler ] = operation_fixture( [ 'user' => 23, 'guest_checkout' => false ] );
 		add_filter( 'graphql_mutation_input', static function ( $input ) { $input['account'] = [ 'username' => 'synthetic' ]; return $input; }, 10, 1 );
-		$result = \GraphQL\GraphQL::executeQuery( $schema, 'mutation{checkout(input:{}){success}}', null, new \WPGraphQL\AppContext() )->toArray(); op_no_errors( $result ); op_assert( in_array( 'checkout', $GLOBALS['op_effects'], true ) && ! $handler->detached );
+		$result = \GraphQL\GraphQL::executeQuery( $schema, 'mutation{checkout(input:{}){success}}', null, new \WPGraphQL\AppContext() )->toArray(); op_transition( $result ); op_no_callbacks(); op_assert( ! $handler->detached && $handler->rejected && in_array( 'checkout-boundary', $handler->calls, true ) );
 	};
 	return $cases;
 }

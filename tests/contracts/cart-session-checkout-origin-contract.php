@@ -9,16 +9,17 @@ $owner=dirname(__DIR__,2);$fixture=__DIR__.'/cart-session-checkout-origin-fixtur
 // SOURCE_PINS_BEGIN
 const ORIGIN_PINS = [
  'WPGraphQL\\WooCommerce\\Utils\\QL_Session_Handler'=>'38d929e5c2aaac50e753f8d5f7ff097c70816d8a09660cbe0d77118c58308fc3',
- 'WPGraphQL\\WooCommerce\\Utils\\Cart_Session_Operation'=>'e289f01f82a4865e488ca30e9d230fb1791727c3248002e4d712b8d9a9d1e2fa',
+ 'WPGraphQL\\WooCommerce\\Utils\\Cart_Session_Operation'=>'4091afb3ad9dddf776e89b91b51c199ba2e6877081511ebfab03c0d60d2a5e1c',
  'WPGraphQL\\WooCommerce\\Mutation\\Checkout'=>'a242fc8acb7f53b7939e24eff7f8fa6a32758ee8f68a3547756b9bc5d97a1708',
  'WPGraphQL\\WooCommerce\\Data\\Mutation\\Checkout_Mutation'=>'501f228900e4a356c6cc64b476f614dc43f19c42a3480805a0b65a2f1c022a09',
+ 'WPGraphQL\\Registry\\TypeRegistry'=>'f8c3f6af8596a01faa88f09a51637bf0b435ebc86fd3946dcaccdadf45b059cc',
  'WPGraphQL\\Type\\WPMutationType'=>'33bfcaeec264a56c94367a9d49dfa61d1e9f21d24acfe903adca9fc4295207e7',
  'WPGraphQL\\Utils\\InstrumentSchema'=>'6f3bf9d2bd1b49798a0adc22aa843b8f5b74e89f73ebcb91916ea12957ba529c',
  'WP_Hook'=>'b839c0e5672246bca8db1ab781ec8835f7732f253c375a237cbf6ec536e8d12e',
  'WPGraphQL\\Router'=>'9566dc98d41d8894d316340a85f56b752f3d9b1fafd3e604cbcdca0b13d39617',
- 'WC_Customer'=>'2eea8d0cadd123219379810e457068319174ddd5826577f45bad062c8871cd36',
- 'WC_Cart'=>'2eea8d0cadd123219379810e457068319174ddd5826577f45bad062c8871cd36',
- 'WC_Cart_Session'=>'2eea8d0cadd123219379810e457068319174ddd5826577f45bad062c8871cd36',
+ 'WC_Customer'=>'9fdf1af2a94b581e33a044d12be7ba875bd0fa33f1618fba94517a65d62b1f18',
+ 'WC_Cart'=>'9fdf1af2a94b581e33a044d12be7ba875bd0fa33f1618fba94517a65d62b1f18',
+ 'WC_Cart_Session'=>'9fdf1af2a94b581e33a044d12be7ba875bd0fa33f1618fba94517a65d62b1f18',
 ];
 // SOURCE_PINS_END
 $wp=rtrim(getenv('WL_WORDPRESS_SOURCE')?:'','/');$gql=rtrim(getenv('WL_WPGRAPHQL_SOURCE')?:'','/');
@@ -27,12 +28,14 @@ $paths=[
  'WPGraphQL\\WooCommerce\\Utils\\Cart_Session_Operation'=>$owner.'/includes/utils/class-cart-session-operation.php',
  'WPGraphQL\\WooCommerce\\Mutation\\Checkout'=>$owner.'/includes/mutation/class-checkout.php',
  'WPGraphQL\\WooCommerce\\Data\\Mutation\\Checkout_Mutation'=>$owner.'/includes/data/mutation/class-checkout-mutation.php',
+ 'WPGraphQL\\Registry\\TypeRegistry'=>$gql.'/src/Registry/TypeRegistry.php',
  'WPGraphQL\\Type\\WPMutationType'=>$gql.'/src/Type/WPMutationType.php','WPGraphQL\\Utils\\InstrumentSchema'=>$gql.'/src/Utils/InstrumentSchema.php',
  'WP_Hook'=>$wp.'/wp-includes/class-wp-hook.php','WPGraphQL\\Router'=>__DIR__.'/cart-session-owned-handler-fixtures.php',
  'WC_Customer'=>$fixture,'WC_Cart'=>$fixture,'WC_Cart_Session'=>$fixture];
 foreach($paths as $class=>$path){if(!is_file($path)||!hash_equals(ORIGIN_PINS[$class]??'',hash_file('sha256',$path))){fwrite(STDERR,"Fixed origin source cohort differs.\n");exit(2);}}
 putenv('WL_ORIGIN_SOURCE_PINS='.json_encode(ORIGIN_PINS));putenv('WL_ORIGIN_FIXTURE_SHA='.ORIGIN_PINS['WC_Customer']);
 $cases=[
+ 'native-registration'=>['ordinary',1,1,1],
  'ordinary'=>['ordinary',1,1,1],'ordinary-cart'=>[null,0,0,0],'filtered-input'=>['ordinary',1,1,1],
  'authenticated'=>['ordinary',1,1,0],'mixed'=>['ordinary',1,1,1],'distinct-roots'=>['ordinary',2,2,2],
  'merged'=>['ordinary',1,1,1],'directives'=>['ordinary',1,1,1],

@@ -1,5 +1,7 @@
 <?php
-/** Real graphql-php execution + actual WPGraphQL instrumentation/mutation lifecycle. */
+/** Real graphql-php + WPGraphQL instrumentation/mutation hooks. Recording handler
+ * and synthetic callbacks: checkout origin rejects here; genuine lower-name default
+ * factory/native TypeRegistry registration belongs to the 36 origin contracts. */
 error_reporting( E_ALL ); ini_set( 'display_errors', '0' ); ini_set( 'log_errors', '0' );
 $graphql_root = rtrim( getenv( 'WL_WPGRAPHQL_SOURCE' ) ?: '', '/' );
 $plugin_root = rtrim( getenv( 'WL_WOOGRAPHQL_SOURCE' ) ?: dirname( __DIR__, 2 ), '/' );

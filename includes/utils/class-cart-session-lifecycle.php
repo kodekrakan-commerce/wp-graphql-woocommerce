@@ -17,11 +17,14 @@ final class Cart_Session_Lifecycle {
 		'WC_Cart_Session' => '5e871b805ec488e7b1497e33eb83d43334ebd33c1f5feaa670deb2dfa12dd25e',
 	];
 	private const ORIGIN_SOURCE_COHORT = [
-		'WPGraphQL\\WooCommerce\\Utils\\Cart_Session_Operation' => 'e289f01f82a4865e488ca30e9d230fb1791727c3248002e4d712b8d9a9d1e2fa',
+		'WPGraphQL\\WooCommerce\\Utils\\Cart_Session_Operation' => '4091afb3ad9dddf776e89b91b51c199ba2e6877081511ebfab03c0d60d2a5e1c',
 		'WPGraphQL\\WooCommerce\\Mutation\\Checkout' => 'a242fc8acb7f53b7939e24eff7f8fa6a32758ee8f68a3547756b9bc5d97a1708',
 		'WPGraphQL\\WooCommerce\\Data\\Mutation\\Checkout_Mutation' => '501f228900e4a356c6cc64b476f614dc43f19c42a3480805a0b65a2f1c022a09',
 		'WPGraphQL\\Type\\WPMutationType' => '33bfcaeec264a56c94367a9d49dfa61d1e9f21d24acfe903adca9fc4295207e7',
 		'WPGraphQL\\Utils\\InstrumentSchema' => '6f3bf9d2bd1b49798a0adc22aa843b8f5b74e89f73ebcb91916ea12957ba529c',
+	];
+	private const RESPONSE_SOURCE_COHORT = [
+		'GraphQL\\Executor\\ExecutionResult' => '899f37cf608b43eddba734604ba301e178b02f7bf12edf0b8b920b4053435fd9',
 	];
 	private const OWN_CALLBACKS = [
 		'graphql_process_http_request_response' => 'send_response',
@@ -54,7 +57,7 @@ final class Cart_Session_Lifecycle {
 	public function __construct( QL_Session_Handler $handler, string $credential_header, array $owned_cookie_names ) {
 		$this->handler = $handler;
 		$this->sources = defined( 'WOOGRAPHQL_CART_SESSION_SOURCE_COHORT' )
-			? WOOGRAPHQL_CART_SESSION_SOURCE_COHORT : array_merge( self::SOURCE_COHORT, self::ORIGIN_SOURCE_COHORT );
+			? WOOGRAPHQL_CART_SESSION_SOURCE_COHORT : array_merge( self::SOURCE_COHORT, self::ORIGIN_SOURCE_COHORT, self::RESPONSE_SOURCE_COHORT );
 		$this->manifest = defined( 'WOOGRAPHQL_CART_SESSION_CALLBACK_COHORT' )
 			? WOOGRAPHQL_CART_SESSION_CALLBACK_COHORT : [];
 		$this->boundary = new Cart_Session_HTTP_Boundary( [ $this, 'cleanup' ], [ $credential_header ], $owned_cookie_names );
@@ -327,6 +330,38 @@ final class Cart_Session_Lifecycle {
 		$this->boundary->discard( $response, $this->auth_status );
 	}
 
+	/** Reject objects in formatted errors before native JSON can invoke callbacks. */
+	private function assert_plain_error_value( $value, int $depth = 0 ): void {
+		if ( $depth > 32 || ( ! is_array( $value ) && ! is_scalar( $value ) && null !== $value ) ) { $this->reject(); }
+		if ( is_array( $value ) ) {
+			foreach ( $value as $child ) { $this->assert_plain_error_value( $child, $depth + 1 ); }
+		}
+	}
+
+	/** Native HTTP keeps ExecutionResult; Router's thrown-error catch uses arrays. */
+	private function rejected_response_errors( $response ): array {
+		if ( is_object( $response ) ) {
+			if ( get_class( $response ) !== \GraphQL\Executor\ExecutionResult::class ) { $this->reject(); }
+			$this->qualified_source( \GraphQL\Executor\ExecutionResult::class );
+			try {
+				// The native jsonSerialize path runs once before terminal cleanup.
+				// Intentional auth detachment already fenced/released its old grant;
+				// response health/cohort still apply and old cart access stays closed.
+				// Only errors survive; data/extensions are never serialized.
+				$response = $response->toArray();
+			} catch ( \Throwable $error ) { $this->reject(); }
+			$this->handler->assert_response_available();
+			$this->require_tail( 'graphql_process_http_request_response', 'send_response' );
+		}
+		if ( ! is_array( $response ) || empty( $response['errors'] ) || ! is_array( $response['errors'] )
+			|| ! array_is_list( $response['errors'] ) ) { $this->reject(); }
+		foreach ( $response['errors'] as $error ) {
+			if ( ! is_array( $error ) || ! isset( $error['message'] ) || ! is_string( $error['message'] ) ) { $this->reject(); }
+		}
+		$this->assert_plain_error_value( $response['errors'] );
+		return $response['errors'];
+	}
+
 	/** Final response serialization stays inside ownership; raw emit follows release. */
 	public function send_response( $response, $deprecated = null, $operation_name = null, $query = null, $variables = null, $status = null ): never {
 		$this->require_tail( 'graphql_process_http_request_response', 'send_response' );
@@ -335,8 +370,7 @@ final class Cart_Session_Lifecycle {
 		if ( $this->handler->has_session_rejection() ) {
 			// Discard healthy but rejected identity work without publishing partial
 			// data or any token already serialized by an earlier sibling field.
-			if ( ! is_array( $response ) || empty( $response['errors'] ) || ! is_array( $response['errors'] ) ) { $this->reject(); }
-			$this->boundary->discard( [ 'errors' => $response['errors'] ], $status );
+			$this->boundary->discard( [ 'errors' => $this->rejected_response_errors( $response ) ], $status );
 		}
 		$this->boundary->complete( $response, function (): void {
 			if ( $this->handler->is_auth_detached() ) {
