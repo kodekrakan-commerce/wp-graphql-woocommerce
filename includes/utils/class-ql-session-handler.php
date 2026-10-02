@@ -56,13 +56,64 @@ class QL_Session_Handler extends WC_Session_Handler {
 	 */
 	protected $_issuing_new_cookie = false; // @codingStandardsIgnoreLine
 
+	/** @var bool Auth-only requests deliberately detach cart persistence. */
+	private $auth_detached = false;
+
+	/** @var int|null Refresh is deferred until signing has succeeded. */
+	private $pending_expiration_update = null;
+
+	/** @var bool */
+	private $customer_token_prepared = false;
+
+	/** @var false|string */
+	private $prepared_customer_token = false;
+
+	/** @var bool Signing/filter pipeline runs once before protected resolution. */
+	private $token_prepared = false;
+
+	/** @var false|string Exact prepared response credential. */
+	private $prepared_token = false;
+
+	/** @var bool Transport mode is frozen before bootstrap. */
+	private $graphql_mode;
+
+	/** @var bool Native-cookie requests retain WooCommerce validation/lifecycle. */
+	private $native_cookie_mode = false;
+
+	/** @var string|null Immutable failure classification for this handler. */
+	private $session_failure = null;
+
+	/** @var string|null Exact effective signing key; never normalized. */
+	private $secret_key = null;
+
+	/** @var bool Resolve the constant/filter once, including failures. */
+	private $secret_key_resolved = false;
+
+	/** @var bool No persisted access before credential/identity admission. */
+	private $session_admitted = false;
+
+	/** @var int Independent account identity at admission. */
+	private $admitted_user_id = 0;
+
+	/** @var string|null The admitted persisted session key. */
+	private $admitted_customer_id = null;
+
 	/**
 	 * Constructor for the session class.
 	 */
 	public function __construct() {
-		parent::__construct();
-
-		$this->_token = apply_filters( 'graphql_woocommerce_cart_session_http_header', 'woocommerce-session' );
+		$this->graphql_mode = Router::is_graphql_http_request();
+		try {
+			parent::__construct();
+			$header = apply_filters( 'graphql_woocommerce_cart_session_http_header', 'woocommerce-session' );
+			if ( ! is_string( $header ) || ! preg_match( '/\A[!#$%&\'*+.^_`|~0-9A-Za-z-]+\z/D', $header ) ) {
+				throw new Cart_Session_Error( Cart_Session_Error::UNAVAILABLE );
+			}
+			$this->_token = $header;
+		} catch ( \Throwable $error ) {
+			$this->_token = 'woocommerce-session';
+			$this->quarantine( Cart_Session_Error::UNAVAILABLE );
+		}
 	}
 
 	/**
@@ -92,12 +143,75 @@ class QL_Session_Handler extends WC_Session_Handler {
 	 * @return mixed|null|string
 	 */
 	private function get_secret_key() {
-		// Use the defined secret key, if it exists.
+		if ( ! $this->secret_key_resolved ) {
+			$this->secret_key_resolved = true;
+			try {
+				$key = defined( 'GRAPHQL_WOOCOMMERCE_SECRET_KEY' ) ? GRAPHQL_WOOCOMMERCE_SECRET_KEY : null;
+				$key = apply_filters( 'graphql_woocommerce_secret_key', $key );
+				if ( ! is_string( $key ) || strlen( $key ) < 32 ) {
+					throw new Cart_Session_Error( Cart_Session_Error::UNAVAILABLE );
+				}
+				$this->secret_key = $key;
+			} catch ( \Throwable $error ) {
+				$this->quarantine( Cart_Session_Error::UNAVAILABLE );
+			}
+		}
+		if ( null === $this->secret_key ) {
+			throw new Cart_Session_Error( Cart_Session_Error::UNAVAILABLE );
+		}
+		return $this->secret_key;
+	}
 
-		$secret_key = defined( 'GRAPHQL_WOOCOMMERCE_SECRET_KEY' ) && ! empty( GRAPHQL_WOOCOMMERCE_SECRET_KEY )
-			? GRAPHQL_WOOCOMMERCE_SECRET_KEY :
-			'graphql-woo-cart-session';
-		return apply_filters( 'graphql_woocommerce_secret_key', $secret_key );
+	/** Fail closed without throwing during WooCommerce's early bootstrap. */
+	private function quarantine( $code ) {
+		if ( null === $this->session_failure || Cart_Session_Error::UNAVAILABLE === $code ) {
+			$this->session_failure = $code;
+		}
+		$this->session_admitted  = false;
+		$this->prepared_token    = false;
+		$this->prepared_customer_token = false;
+		$this->pending_expiration_update = null;
+		$this->_customer_id      = '';
+		$this->_data             = [];
+		$this->_dirty            = false;
+		$this->_has_token        = false;
+		$this->_has_cookie       = false;
+		$this->_issuing_new_token  = false;
+		$this->_issuing_new_cookie = false;
+		$this->_session_issued     = null;
+	}
+
+	/** No shutdown/native callback may silently relabel an admitted identity. */
+	private function session_access_allowed() {
+		if ( $this->auth_detached ) {
+			return false;
+		}
+		if ( ! $this->session_admitted || null !== $this->session_failure ) {
+			return false;
+		}
+		if ( $this->native_cookie_mode ) {
+			return true;
+		}
+		if ( $this->admitted_user_id !== (int) get_current_user_id()
+			|| ( null !== $this->admitted_customer_id && (string) $this->_customer_id !== $this->admitted_customer_id ) ) {
+			$this->quarantine( 'WL_CART_SESSION_TRANSITION_INVALID' );
+			return false;
+		}
+		return true;
+	}
+
+	/** Throw only within GraphQL's guarded operation/field execution boundary. */
+	public function assert_session_ready() {
+		if ( $this->auth_detached ) {
+			throw new Cart_Session_Transition_Error();
+		}
+		$this->session_access_allowed();
+		if ( 'WL_CART_SESSION_TRANSITION_INVALID' === $this->session_failure ) {
+			throw new Cart_Session_Transition_Error();
+		}
+		if ( null !== $this->session_failure || ! $this->session_admitted ) {
+			throw new Cart_Session_Error( $this->session_failure ?: Cart_Session_Error::UNAVAILABLE );
+		}
 	}
 
 	/**
@@ -106,15 +220,25 @@ class QL_Session_Handler extends WC_Session_Handler {
 	 * @return void
 	 */
 	public function init() {
-		$this->init_session_token();
+		add_filter( 'woocommerce_persistent_cart_enabled', function ( $enabled ) {
+			return $this->session_access_allowed() ? $enabled : false;
+		} );
+		// WC initializes outside Router's exception boundary: install guards first,
+		// quarantine early failures, and report them during GraphQL execution.
+		add_action( 'do_graphql_request', [ $this, 'assert_session_ready' ], PHP_INT_MIN, 0 );
+		new Cart_Session_Operation( $this );
+		try {
+			$this->init_session_token();
+		} catch ( \Throwable $error ) {
+			// Validated-session callbacks may fail after construction too. Early WC
+			// bootstrap still must not escape Router's controlled error boundary.
+			$this->quarantine( Cart_Session_Error::UNAVAILABLE );
+		}
+		if ( ! $this->session_access_allowed() ) {
+			return;
+		}
 		Session_Transaction_Manager::get( $this );
-
-		/**
-		 * Necessary since Session_Transaction_Manager applies to the reference.
-		 *
-		 * @var self $this
-		 */
-		if ( Router::is_graphql_http_request() ) {
+		if ( $this->graphql_mode ) {
 			add_action( 'woocommerce_set_cart_cookies', [ $this, 'set_customer_session_token' ], 10 );
 			add_action( 'woographql_update_session', [ $this, 'set_customer_session_token' ], 10 );
 			add_action( 'shutdown', [ $this, 'save_data' ] );
@@ -136,7 +260,9 @@ class QL_Session_Handler extends WC_Session_Handler {
 	 * @return void
 	 */
 	public function mark_dirty() {
-		$this->_dirty = true;
+		if ( $this->session_access_allowed() ) {
+			$this->_dirty = true;
+		}
 	}
 
 	/**
@@ -147,70 +273,38 @@ class QL_Session_Handler extends WC_Session_Handler {
 	 * @return void
 	 */
 	public function init_session_token() {
-
-		/**
-		 * @var object{ iat: int, exp: int, data: object{ customer_id: string } }|false|\WP_Error $token
-		 */
-		$token = $this->get_session_token();
-
-		// Process existing session if not expired or invalid.
-		if ( $token && is_object( $token ) && ! is_wp_error( $token ) ) {
-			$this->_customer_id        = $token->data->customer_id;
-			$this->_session_issued     = $token->iat;
-			$this->_session_expiration = $token->exp;
-			$this->_session_expiring   = $token->exp - ( 3600 );
-			$this->_has_token          = true;
-			$this->_data               = $this->get_session_data();
-
-			// If the user logs in, update session.
-			if ( is_user_logged_in() && strval( get_current_user_id() ) !== $this->_customer_id ) {
-				$guest_session_id   = $this->_customer_id;
-				$this->_customer_id = strval( get_current_user_id() );
-				$this->_dirty       = true;
-
-				// If session empty check for previous data associated with customer and assign that to the session.
-				if ( empty( $this->_data ) ) {
-					$this->_data = $this->get_session_data();
-				}
-
-				// @phpstan-ignore-next-line
-				$this->save_data( $guest_session_id );
-				Router::is_graphql_http_request()
-					? $this->set_customer_session_token( true )
-					: $this->set_customer_session_cookie( true );
-			}
-
-			// Update session expiration on each action.
-			$this->set_session_expiration();
-			if ( $token->exp < $this->_session_expiration ) {
-				$this->update_session_timestamp( (string) $this->_customer_id, $this->_session_expiration );
-			}
-		} elseif ( is_wp_error( $token ) ) {
-			add_filter(
-				'graphql_woocommerce_session_token_errors',
-				static function ( $errors ) use ( $token ) {
-					$errors = $token->get_error_message();
-					return $errors;
-				}
-			);
-		}
-
-		$start_new_session = ! $token || is_wp_error( $token );
-		if ( ! $start_new_session ) {
+		if ( null !== $this->session_failure || $this->session_admitted ) {
 			return;
 		}
-
-		// Distribute new session token on GraphQL requests, otherwise distribute a new session cookie.
-		if ( Router::is_graphql_http_request() ) {
-			// Start new session.
+		$token = $this->get_session_token();
+		if ( is_wp_error( $token ) ) {
+			$this->quarantine( $token->get_error_code() );
+			return;
+		}
+		$this->admitted_user_id = (int) get_current_user_id();
+		$this->session_admitted = true;
+		if ( false !== $token ) {
+			$this->_customer_id          = (string) $token->data->customer_id;
+			$this->admitted_customer_id   = $this->_customer_id;
+			$this->_session_issued       = $token->iat;
+			$this->_session_expiration   = $token->exp;
+			$this->_session_expiring     = $token->exp - 3600;
+			$this->_has_token            = true;
+			$this->_data                 = $this->get_session_data();
 			$this->set_session_expiration();
-
-			// Get Customer ID.
-			$this->_customer_id = is_user_logged_in() ? get_current_user_id() : $this->generate_customer_id();
-			$this->_data        = $this->get_session_data();
+			if ( $token->exp < $this->_session_expiration ) {
+				$this->pending_expiration_update = $this->_session_expiration;
+			}
+		} elseif ( $this->graphql_mode ) {
+			$this->set_session_expiration();
+			$this->_customer_id         = (string) $this->generate_customer_id();
+			$this->admitted_customer_id = $this->_customer_id;
+			$this->_data                = $this->get_session_data();
 			$this->set_customer_session_token( true );
 		} else {
-			$this->init_session_cookie();
+			// The native cookie path validates its independently signed cookie.
+			parent::init_session_cookie();
+			$this->admitted_customer_id = (string) $this->_customer_id;
 		}
 	}
 
@@ -223,55 +317,89 @@ class QL_Session_Handler extends WC_Session_Handler {
 	 * @return false|\WP_Error|object{ iat: int, exp: int, data: object{ customer_id: string } }
 	 */
 	public function get_session_token() {
-		// Get the Auth header.
-		$session_header = $this->get_session_header();
-
-		if ( empty( $session_header ) ) {
-			return false;
+		if ( null !== $this->session_failure ) {
+			return new \WP_Error( $this->session_failure, 'WL_CART_SESSION_TRANSITION_INVALID' === $this->session_failure
+				? ( new Cart_Session_Transition_Error() )->getMessage()
+				: ( new Cart_Session_Error( $this->session_failure ) )->getMessage() );
 		}
-
-		// Get the token from the header.
-		$token_string = sscanf( $session_header, 'Session %s' );
-		if ( empty( $token_string ) ) {
-			return false;
+		// Opt-in AJAX/REST with no JWT uses the independently signed native
+		// cookie handler. JWT configuration governs JWT requests only.
+		if ( ! $this->graphql_mode ) {
+			try {
+				$native_header = $this->get_session_header();
+				if ( ! array_key_exists( $this->get_server_key(), $_SERVER ) && ( false === $native_header || null === $native_header ) ) {
+					$this->native_cookie_mode = true;
+					return false;
+				}
+			} catch ( \Throwable $error ) {
+				return $this->token_failure( Cart_Session_Error::UNAVAILABLE );
+			}
 		}
-
-		list( $token ) = $token_string;
-
-		/**
-		 * Try to decode the token
-		 */
 		try {
-			JWT::$leeway = 60;
-
+			// Configuration dominates supplied credentials, including absent headers.
 			$secret = $this->get_secret_key();
-			$key    = new Key( $secret, 'HS256' );
-			/**
-			 * Decode the token
-			 *
-			 * @var null|object{ iat: int, exp: int, data: object{ customer_id: string }, iss: string } $token
-			 */
-			$token = ! empty( $token ) ? JWT::decode( $token, $key ) : null;
-
-			// Check if token was successful decoded.
-			if ( ! $token ) {
-				throw new \Exception( __( 'Failed to decode session token', 'wp-graphql-woocommerce' ) );
-			}
-
-			// The Token is decoded now validate the iss.
-			if ( empty( $token->iss ) || get_bloginfo( 'url' ) !== $token->iss ) {
-				throw new \Exception( __( 'The iss do not match with this server', 'wp-graphql-woocommerce' ) );
-			}
-
-			// Validate the customer id in the token.
-			if ( empty( $token->data ) || empty( $token->data->customer_id ) ) {
-				throw new \Exception( __( 'Customer ID not found in the token', 'wp-graphql-woocommerce' ) );
+		} catch ( \Throwable $error ) {
+			return $this->token_failure( Cart_Session_Error::UNAVAILABLE );
+		}
+		try {
+			$header = $this->get_session_header();
+		} catch ( \Throwable $error ) {
+			return $this->token_failure( Cart_Session_Error::UNAVAILABLE );
+		}
+		if ( ! array_key_exists( $this->get_server_key(), $_SERVER ) && ( false === $header || null === $header ) ) {
+			return false;
+		}
+		if ( ! is_string( $header ) || ! preg_match( '/\ASession ([A-Za-z0-9_-]+\.[A-Za-z0-9_-]+\.[A-Za-z0-9_-]+)\z/D', $header, $match ) ) {
+			return $this->token_failure( Cart_Session_Error::INVALID );
+		}
+		// Validate wire shape before verification so malformed JSON is a credential
+		// error, not a cryptographic/configuration DomainException.
+		try {
+			$segments = explode( '.', $match[1] );
+			$jwt_header = JWT::jsonDecode( JWT::urlsafeB64Decode( $segments[0] ) );
+			$payload = JWT::jsonDecode( JWT::urlsafeB64Decode( $segments[1] ) );
+			if ( ! $jwt_header instanceof \stdClass || ! $payload instanceof \stdClass
+				|| ! isset( $jwt_header->alg ) || 'HS256' !== $jwt_header->alg
+				|| 32 !== strlen( JWT::urlsafeB64Decode( $segments[2] ) ) ) {
+				return $this->token_failure( Cart_Session_Error::INVALID );
 			}
 		} catch ( \Throwable $error ) {
-			return new \WP_Error( 'invalid_token', $error->getMessage() );
-		}//end try
-
+			return $this->token_failure( Cart_Session_Error::INVALID );
+		}
+		try {
+			JWT::$leeway = 60;
+			$token = JWT::decode( $match[1], new Key( $secret, 'HS256' ) );
+		} catch ( \UnexpectedValueException $error ) {
+			return $this->token_failure( Cart_Session_Error::INVALID );
+		} catch ( \Throwable $error ) {
+			return $this->token_failure( Cart_Session_Error::UNAVAILABLE );
+		}
+		if ( ! isset( $token->iss, $token->iat, $token->nbf, $token->exp, $token->data->customer_id )
+			|| ! is_string( $token->iss ) || get_bloginfo( 'url' ) !== $token->iss
+			|| ! is_int( $token->iat ) || ! is_int( $token->nbf ) || ! is_int( $token->exp )
+			|| $token->iat <= 0 || $token->exp <= $token->iat || $token->nbf > $token->exp
+			|| ( ! is_string( $token->data->customer_id ) && ! is_int( $token->data->customer_id ) ) ) {
+			return $this->token_failure( Cart_Session_Error::INVALID );
+		}
+		$id = (string) $token->data->customer_id;
+		$user_id = (int) get_current_user_id();
+		if ( $user_id > 0 ) {
+			if ( (string) $user_id !== $id ) {
+				return $this->token_failure( Cart_Session_Error::INVALID );
+			}
+		} elseif ( ! preg_match( '/\A(?:[a-f0-9]{32}|t_[a-f0-9]{30})\z/D', $id ) ) {
+			// Supported native random guest formats are shape checks only AFTER a
+			// strong-key verification. Numeric account claims need account auth.
+			return $this->token_failure( Cart_Session_Error::INVALID );
+		}
 		return $token;
+	}
+
+	/** @return \WP_Error */
+	private function token_failure( $code ) {
+		$this->quarantine( $code );
+		$error = new Cart_Session_Error( $code );
+		return new \WP_Error( $code, $error->getMessage() );
 	}
 
 	/**
@@ -301,7 +429,7 @@ class QL_Session_Handler extends WC_Session_Handler {
 	 * @return bool
 	 */
 	public function sending_token() {
-		return $this->_has_token || $this->_issuing_new_token;
+		return $this->session_access_allowed() && ( $this->_has_token || $this->_issuing_new_token );
 	}
 
 	/**
@@ -310,7 +438,7 @@ class QL_Session_Handler extends WC_Session_Handler {
 	 * @return bool
 	 */
 	public function sending_cookie() {
-		return $this->_has_cookie || $this->_issuing_new_cookie;
+		return $this->session_access_allowed() && ( $this->_has_cookie || $this->_issuing_new_cookie );
 	}
 
 	/**
@@ -319,70 +447,172 @@ class QL_Session_Handler extends WC_Session_Handler {
 	 * @return false|string
 	 */
 	public function build_token() {
-		if ( empty( $this->_session_issued ) || ! $this->sending_token() ) {
+		if ( ! $this->auth_detached && Cart_Session_Error::UNAVAILABLE === $this->session_failure ) {
+			throw new Cart_Session_Error( Cart_Session_Error::UNAVAILABLE );
+		}
+		return $this->session_access_allowed() && $this->token_prepared ? $this->prepared_token : false;
+	}
+
+	/** Prepare once inside GraphQL's guarded boundary, before queue/resolver work. */
+	public function prepare_session_token() {
+		$this->assert_session_ready();
+		if ( $this->token_prepared || $this->native_cookie_mode ) {
+			return;
+		}
+		$this->prepared_token = $this->sign_token();
+		$this->token_prepared = true;
+		if ( false === $this->prepared_token && ! $this->_has_token ) {
+			$this->quarantine( Cart_Session_Error::UNAVAILABLE );
+			throw new Cart_Session_Error( Cart_Session_Error::UNAVAILABLE );
+		}
+	}
+
+	/** Commit only after all selected credential pipelines have prepared. */
+	public function complete_session_preparation() {
+		$this->assert_session_ready();
+		if ( ! $this->token_prepared && ! $this->native_cookie_mode ) {
+			throw new Cart_Session_Error( Cart_Session_Error::UNAVAILABLE );
+		}
+		if ( null !== $this->pending_expiration_update ) {
+			$this->update_session_timestamp( $this->_customer_id, $this->pending_expiration_update );
+			$this->pending_expiration_update = null;
+		}
+	}
+
+	/** @return false|string */
+	private function sign_token() {
+		if ( ! $this->session_access_allowed() || empty( $this->_session_issued ) || ! $this->sending_token() ) {
 			return false;
 		}
 
-		/**
-		 * Determine the "not before" value for use in the token
-		 *
-		 * @param float      $issued        The timestamp of token was issued.
-		 * @param int|string $customer_id   Customer ID.
-		 * @param array      $session_data  Cart session data.
-		 */
-		$not_before = apply_filters(
-			'graphql_woo_cart_session_not_before',
-			$this->_session_issued,
-			$this->_customer_id,
-			$this->_data
-		);
+		try {
+			/**
+			 * Determine the "not before" value for use in the token
+			 *
+			 * @param float      $issued        The timestamp of token was issued.
+			 * @param int|string $customer_id   Customer ID.
+			 * @param array      $session_data  Cart session data.
+			 */
+			$not_before = apply_filters(
+				'graphql_woo_cart_session_not_before',
+				$this->_session_issued,
+				$this->_customer_id,
+				$this->_data
+			);
 
-		// Configure the token array, which will be encoded.
-		$token = [
-			'iss'  => get_bloginfo( 'url' ),
-			'iat'  => $this->_session_issued,
-			'nbf'  => $not_before,
-			'exp'  => $this->_session_expiration,
-			'data' => [
-				'customer_id' => $this->_customer_id,
-			],
-		];
+			// Configure the token array, which will be encoded.
+			$token = [
+				'iss'  => get_bloginfo( 'url' ),
+				'iat'  => $this->_session_issued,
+				'nbf'  => $not_before,
+				'exp'  => $this->_session_expiration,
+				'data' => [
+					'customer_id' => $this->_customer_id,
+				],
+			];
 
-		/**
-		 * Filter the token, allowing for individual systems to configure the token as needed
-		 *
-		 * @param array      $token         The token array that will be encoded
-		 * @param int|string $customer_id   ID of customer associated with token.
-		 * @param array      $session_data  Session data associated with token.
-		 */
-		$token = apply_filters(
-			'graphql_woocommerce_cart_session_before_token_sign',
-			$token,
-			$this->_customer_id,
-			$this->_data
-		);
+			/**
+			 * Filter the token, allowing for individual systems to configure the token as needed
+			 *
+			 * @param array      $token         The token array that will be encoded
+			 * @param int|string $customer_id   ID of customer associated with token.
+			 * @param array      $session_data  Session data associated with token.
+			 */
+			$token = apply_filters(
+				'graphql_woocommerce_cart_session_before_token_sign',
+				$token,
+				$this->_customer_id,
+				$this->_data
+			);
 
-		// Encode the token.
-		JWT::$leeway = 60;
-		$token       = JWT::encode( $token, $this->get_secret_key(), 'HS256' );
+			// Encode the token.
+			JWT::$leeway = 60;
+			$token       = JWT::encode( $token, $this->get_secret_key(), 'HS256' );
 
-		/**
-		 * Filter the token before returning it, allowing for individual systems to override what's returned.
-		 *
-		 * For example, if the user should not be granted a token for whatever reason, a filter could have the token return null.
-		 *
-		 * @param string     $token         The signed JWT token that will be returned
-		 * @param int|string $customer_id   ID of customer associated with token.
-		 * @param array      $session_data  Session data associated with token.
-		 */
-		$token = apply_filters(
-			'graphql_woocommerce_cart_session_signed_token',
-			$token,
-			$this->_customer_id,
-			$this->_data
-		);
+			/**
+			 * Filter the token before returning it, allowing for individual systems to override what's returned.
+			 *
+			 * For example, if the user should not be granted a token for whatever reason, a filter could have the token return null.
+			 *
+			 * @param string     $token         The signed JWT token that will be returned
+			 * @param int|string $customer_id   ID of customer associated with token.
+			 * @param array      $session_data  Session data associated with token.
+			 */
+			$token = apply_filters(
+				'graphql_woocommerce_cart_session_signed_token',
+				$token,
+				$this->_customer_id,
+				$this->_data
+			);
+		} catch ( \Throwable $error ) {
+			$this->quarantine( Cart_Session_Error::UNAVAILABLE );
+			throw new Cart_Session_Error( Cart_Session_Error::UNAVAILABLE );
+		}
 
+		if ( null === $token || false === $token ) {
+			return false;
+		}
+		if ( ! is_string( $token ) || '' === $token ) {
+			$this->quarantine( Cart_Session_Error::UNAVAILABLE );
+			throw new Cart_Session_Error( Cart_Session_Error::UNAVAILABLE );
+		}
+		$this->validate_prepared_token( $token );
 		return $token;
+	}
+
+	/** A server token filter cannot replace a credential with another identity. */
+	private function validate_prepared_token( $token ) {
+		try {
+			if ( ! is_string( $token ) || ! preg_match( '/\A[A-Za-z0-9_-]+\.[A-Za-z0-9_-]+\.[A-Za-z0-9_-]+\z/D', $token ) ) {
+				throw new Cart_Session_Error( Cart_Session_Error::UNAVAILABLE );
+			}
+			$decoded = JWT::decode( $token, new Key( $this->get_secret_key(), 'HS256' ) );
+			if ( ! isset( $decoded->iss, $decoded->iat, $decoded->nbf, $decoded->exp, $decoded->data->customer_id )
+				|| ( ! is_string( $decoded->data->customer_id ) && ! is_int( $decoded->data->customer_id ) )
+				|| ! is_int( $decoded->iat ) || ! is_int( $decoded->nbf ) || ! is_int( $decoded->exp )
+				|| $decoded->iat <= 0 || $decoded->exp <= $decoded->iat || $decoded->nbf > $decoded->exp
+				|| get_bloginfo( 'url' ) !== $decoded->iss
+				|| (string) $this->_customer_id !== (string) $decoded->data->customer_id ) {
+				throw new Cart_Session_Error( Cart_Session_Error::UNAVAILABLE );
+			}
+		} catch ( \Throwable $error ) {
+			$this->quarantine( Cart_Session_Error::UNAVAILABLE );
+			throw new Cart_Session_Error( Cart_Session_Error::UNAVAILABLE );
+		}
+	}
+
+	/** Prepare selected body-token filters before resolver side effects. */
+	public function prepare_customer_session_token() {
+		if ( $this->auth_detached || $this->customer_token_prepared ) {
+			return;
+		}
+		$this->prepare_session_token();
+		try {
+			$token = apply_filters( 'graphql_customer_session_token', $this->prepared_token );
+			if ( null !== $token && false !== $token ) {
+				if ( ! is_string( $token ) || '' === $token ) {
+					throw new Cart_Session_Error( Cart_Session_Error::UNAVAILABLE );
+				}
+				$this->validate_prepared_token( $token );
+			}
+			$this->prepared_customer_token = $token ?: false;
+			$this->customer_token_prepared = true;
+		} catch ( \Throwable $error ) {
+			$this->quarantine( Cart_Session_Error::UNAVAILABLE );
+			throw new Cart_Session_Error( Cart_Session_Error::UNAVAILABLE );
+		}
+	}
+
+	/** @return string|null */
+	public function build_customer_token() {
+		if ( ! $this->session_access_allowed() ) {
+			return null;
+		}
+		if ( ! $this->customer_token_prepared ) {
+			// The operation coordinator must prepare selected token fields.
+			throw new Cart_Session_Error( Cart_Session_Error::UNAVAILABLE );
+		}
+		return $this->prepared_customer_token ?: null;
 	}
 
 	/**
@@ -395,14 +625,14 @@ class QL_Session_Handler extends WC_Session_Handler {
 	 * @return void
 	 */
 	public function set_customer_session_token( $set ) {
-		if ( ! empty( $this->_session_issued ) && $set ) {
+		if ( $this->session_access_allowed() && ! empty( $this->_session_issued ) && $set ) {
 			/**
 			 * Set callback session token for use in the HTTP response header and customer/user "sessionToken" field.
 			 */
 			add_filter(
 				'graphql_response_headers_to_send',
 				function ( $headers ) {
-					$token = $this->build_token();
+					$token = $this->session_access_allowed() && $this->token_prepared ? $this->prepared_token : false;
 					if ( $token ) {
 						$headers[ $this->_token ] = $token;
 					}
@@ -422,6 +652,9 @@ class QL_Session_Handler extends WC_Session_Handler {
 	 * @return void
 	 */
 	public function set_customer_session_cookie( $set ) {
+		if ( ! $this->session_access_allowed() ) {
+			return;
+		}
 		parent::set_customer_session_cookie( $set );
 
 		if ( $set ) {
@@ -437,7 +670,7 @@ class QL_Session_Handler extends WC_Session_Handler {
 	public function has_session() {
 
 		// @codingStandardsIgnoreLine.
-		return $this->_issuing_new_token || $this->_has_token || parent::has_session();
+		return $this->session_access_allowed() && ( $this->_issuing_new_token || $this->_has_token || parent::has_session() );
 	}
 
 	/**
@@ -446,6 +679,9 @@ class QL_Session_Handler extends WC_Session_Handler {
 	 * @return void
 	 */
 	public function set_session_expiration() {
+		if ( null !== $this->session_failure ) {
+			return;
+		}
 		$this->_session_issued = time();
 		// 47 hours.
 		$this->_session_expiring = apply_filters( 'wc_session_expiring', $this->_session_issued + ( 60 * 60 * 47 ) ); // phpcs:ignore WordPress.NamingConventions.PrefixAllGlobals.NonPrefixedHooknameFound
@@ -465,18 +701,9 @@ class QL_Session_Handler extends WC_Session_Handler {
 	 * @return void
 	 */
 	public function save_if_dirty() {
-		// Update if user recently authenticated.
-		if ( is_user_logged_in() && get_current_user_id() !== $this->_customer_id ) {
-			$this->_customer_id = get_current_user_id();
-			$this->_dirty       = true;
+		if ( $this->session_access_allowed() && $this->_dirty ) {
+			$this->save_data();
 		}
-
-		// Bail if no changes.
-		if ( ! $this->_dirty ) {
-			return;
-		}
-
-		$this->save_data();
 	}
 
 	/**
@@ -485,6 +712,9 @@ class QL_Session_Handler extends WC_Session_Handler {
 	 * @return void
 	 */
 	public function reload_data() {
+		if ( ! $this->session_access_allowed() ) {
+			return;
+		}
 		\WC_Cache_Helper::invalidate_cache_group( WC_SESSION_CACHE_GROUP );
 
 		// Get session data.
@@ -508,6 +738,9 @@ class QL_Session_Handler extends WC_Session_Handler {
 	 * @return string
 	 */
 	public function get_client_session_id() {
+		if ( ! $this->session_access_allowed() ) {
+			return '';
+		}
 		// Get client session ID.
 		$client_session_id            = $this->get( 'client_session_id', false );
 		$client_session_id_expiration = absint( $this->get( 'client_session_id_expiration', 0 ) );
@@ -528,4 +761,123 @@ class QL_Session_Handler extends WC_Session_Handler {
 		// Return new client session ID.
 		return $client_session_id;
 	}
+	/** Detach before a qualified auth callback; never reattach in this request. */
+	public function detach_for_auth() {
+		$this->assert_session_ready();
+		$this->auth_detached = true;
+		$this->_data = [];
+		$this->_dirty = false;
+		$this->_has_token = false;
+		$this->_has_cookie = false;
+		$this->_issuing_new_token = false;
+		$this->_issuing_new_cookie = false;
+		$this->prepared_token = false;
+		$this->prepared_customer_token = false;
+		$this->pending_expiration_update = null;
+		if ( function_exists( 'WC' ) && isset( \WC()->customer ) ) {
+			remove_action( 'shutdown', [ \WC()->customer, 'save' ], 10 );
+		}
+	}
+
+	/** @return bool */
+	public function is_graphql_session() {
+		return $this->graphql_mode;
+	}
+
+	/** @return bool */
+	public function is_auth_detached() {
+		return $this->auth_detached;
+	}
+
+	/** @inheritDoc */
+	public function get( $key, $default = null ) {
+		return $this->session_access_allowed() ? parent::get( $key, $default ) : $default;
+	}
+
+	/** @inheritDoc */
+	public function set( $key, $value ) {
+		if ( $this->session_access_allowed() ) {
+			parent::set( $key, $value );
+		}
+	}
+
+	/** @inheritDoc */
+	public function __unset( $key ) {
+		if ( $this->session_access_allowed() ) {
+			parent::__unset( $key );
+		}
+	}
+
+	/** Native checkout must not reinitialize/migrate an admitted GraphQL cart. */
+	public function init_session_cookie() {
+		if ( ! $this->session_access_allowed() ) {
+			return;
+		}
+		if ( $this->graphql_mode ) {
+			return;
+		}
+		parent::init_session_cookie();
+	}
+
+	/** @inheritDoc */
+	public function get_session( $customer_id, $default_value = false ) {
+		if ( ! $this->session_access_allowed() ) {
+			return $default_value;
+		}
+		if ( ! $this->native_cookie_mode && null !== $this->admitted_customer_id && (string) $customer_id !== $this->admitted_customer_id ) {
+			$this->quarantine( Cart_Session_Error::INVALID );
+			return $default_value;
+		}
+		return parent::get_session( $customer_id, $default_value );
+	}
+
+	/** @inheritDoc */
+	public function save_data( $old_session_key = '' ) {
+		if ( ! $this->session_access_allowed() ) {
+			return;
+		}
+		if ( ! $this->native_cookie_mode && '' !== $old_session_key && (string) $old_session_key !== $this->admitted_customer_id ) {
+			$this->quarantine( Cart_Session_Error::INVALID );
+			return;
+		}
+		parent::save_data( $old_session_key );
+	}
+
+	/** @inheritDoc */
+	public function delete_session( $customer_id ) {
+		if ( ! $this->session_access_allowed() ) {
+			return;
+		}
+		if ( ! $this->native_cookie_mode && (string) $customer_id !== (string) $this->_customer_id ) {
+			$this->quarantine( Cart_Session_Error::INVALID );
+			return;
+		}
+		parent::delete_session( $customer_id );
+	}
+
+	/** @inheritDoc */
+	public function update_session_timestamp( $customer_id, $timestamp ) {
+		if ( $this->session_access_allowed() && (string) $customer_id === (string) $this->_customer_id ) {
+			parent::update_session_timestamp( $customer_id, $timestamp );
+		}
+	}
+
+	/** @inheritDoc */
+	public function destroy_session() {
+		if ( $this->session_access_allowed() ) {
+			parent::destroy_session();
+		}
+	}
+
+	/** @inheritDoc */
+	public function forget_session() {
+		if ( ! $this->session_access_allowed() ) {
+			return;
+		}
+		parent::forget_session();
+		$this->prepared_token = false;
+		$this->token_prepared = false;
+		$this->admitted_customer_id = (string) $this->_customer_id;
+	}
+
 }

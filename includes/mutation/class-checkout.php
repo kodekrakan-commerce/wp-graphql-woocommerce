@@ -167,6 +167,12 @@ class Checkout {
 
 				return array_merge( [ 'id' => $order_id ], $results );
 			} catch ( \Throwable $e ) {
+				if ( $e instanceof \WPGraphQL\WooCommerce\Utils\Cart_Session_Error
+					|| $e instanceof \WPGraphQL\WooCommerce\Utils\Cart_Session_Transition_Error ) {
+					// Preserve typed session classification and any durable order.
+					// A late session failure cannot authorize deleting that order.
+					throw $e;
+				}
 				// Delete order if it was created.
 				if ( is_object( $order ) ) {
 					Order_Mutation::purge( $order );

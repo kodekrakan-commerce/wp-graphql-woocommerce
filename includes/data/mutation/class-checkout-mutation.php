@@ -263,7 +263,22 @@ class Checkout_Mutation {
 		// phpcs:ignore WordPress.NamingConventions.PrefixAllGlobals.NonPrefixedHooknameFound
 		$customer_id = apply_filters( 'woocommerce_checkout_customer_id', get_current_user_id() );
 
+		$session = WC()->session;
+		$is_graphql_session = $session instanceof \WPGraphQL\WooCommerce\Utils\QL_Session_Handler && $session->is_graphql_session();
+		if ( $is_graphql_session ) {
+			$session->assert_session_ready();
+			if ( (string) $customer_id !== (string) get_current_user_id() ) {
+				throw new \WPGraphQL\WooCommerce\Utils\Cart_Session_Transition_Error();
+			}
+		}
+
 		if ( ! is_user_logged_in() && ( self::is_registration_required() || ! empty( $data['createaccount'] ) ) ) {
+			// This unshipped candidate has no qualified checkout transfer permit.
+			// Hold the actual creation branch before effects, using its single
+			// policy decision even when extension filters change after preflight.
+			if ( $is_graphql_session ) {
+				throw new \WPGraphQL\WooCommerce\Utils\Cart_Session_Transition_Error();
+			}
 			$username    = ! empty( $data['account_username'] ) ? $data['account_username'] : '';
 			$password    = ! empty( $data['account_password'] ) ? $data['account_password'] : '';
 			$customer_id = wc_create_new_customer(

@@ -1,0 +1,21 @@
+{
+  "dependency": "firebase/php-jwt",
+  "version": "7.1.0",
+  "source_revision": "b374a5d1a4f1f67fadc2165cdb284645945e2fc0",
+  "asset_reference_revision": "a03794934147412fbe3702564df68d00f2b00570",
+  "retained_root_metadata_unchanged": true,
+  "files": {
+    "vendor/firebase/php-jwt/CHANGELOG.md": "b8fab7b617cfca99a7da7d239bd6875bfe02187b2534237f7685729cd620e47b",
+    "vendor/firebase/php-jwt/LICENSE": "00e641cb185172e752bb3ab744925502c099dca06c9ecf53ea6fba941a65910c",
+    "vendor/firebase/php-jwt/README.md": "438ada1aa84a29a2b0e938f8d3fdcfa298de6587675ae0b342347a2eeb99290d",
+    "vendor/firebase/php-jwt/composer.json": "085e61bd2b12c890827b48836eab279a51179c76d797041968687149c10beb1a",
+    "vendor-prefixed/firebase/php-jwt/src/BeforeValidException.php": "9832c4d06ffb48b77df313f8b99b55725b6444a24df86d641ce79dff9424ef9e",
+    "vendor-prefixed/firebase/php-jwt/src/CachedKeySet.php": "7170415668433706862e69fc67f0ebbbff2a4d07fa9926f60a5d102449a01bbc",
+    "vendor-prefixed/firebase/php-jwt/src/ExpiredException.php": "a1046b1374cef54244209d9e71e397ca6b5e5852608d93ce82a4fde70e263090",
+    "vendor-prefixed/firebase/php-jwt/src/JWK.php": "eca28ade070567145ad8f10daa65f5829163e7e8c900d98feb7ae87f5aa77910",
+    "vendor-prefixed/firebase/php-jwt/src/JWT.php": "b9987e23ad24db1c8a7b8fb4a5aa9cfbe50cf046cdc198770c274c15daff9a77",
+    "vendor-prefixed/firebase/php-jwt/src/JWTExceptionWithPayloadInterface.php": "2b22b8c78f039dd75989f911878d37988d946cfd658cb14222f9d5a7adb55ec5",
+    "vendor-prefixed/firebase/php-jwt/src/Key.php": "d6f63018e484cb7052c8bc844ab918771543e8a1c4c453fdf60e36bdaeb429fd",
+    "vendor-prefixed/firebase/php-jwt/src/SignatureInvalidException.php": "14b19cda171ef0c3053b56fd074e17add287223611e5963cb2f5ac0a278941a9"
+  }
+}
