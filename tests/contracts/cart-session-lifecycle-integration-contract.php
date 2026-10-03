@@ -8,7 +8,7 @@
  * --cli-only skips the localhost server; it does not claim HTTP header proof.
  */
 error_reporting( E_ALL ); ini_set( 'display_errors', '0' ); ini_set( 'log_errors', '0' );
-const INTEGRATION_FIXTURE_SHA = '5cc3c4d56ea19f307df10d4faed0d7aa0edb577afd0fbc2c46ba7e9c782aa33d';
+const INTEGRATION_FIXTURE_SHA = 'd688acfa54978cc277f454981b4d75c74d05999474b5f02727f2fa231618d103';
 const INTEGRATION_ADAPTER_SHA = '42a311af53cb4cf7003521923a31d1d30838eb627b2790b38472f78c801e64b0';
 const INTEGRATION_HANDLER_SHA = '2d27f23d0d34434c950e1eda638b580f2109a981a6b805890f7397011ca7bb12';
 const INTEGRATION_RESULT_SHA = '899f37cf608b43eddba734604ba301e178b02f7bf12edf0b8b920b4053435fd9';

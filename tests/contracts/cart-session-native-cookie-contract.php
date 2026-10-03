@@ -4,7 +4,7 @@
  * settings and Woo objects are controlled substitutes. CLI only: no bootstrap,
  * SQL, HTTP or credential delivery proof. */
 error_reporting(E_ALL); ini_set('display_errors','0'); ini_set('log_errors','0');
-const COOKIE_CALLER_FIXTURE_SHA = '9c558304f606838c171b114348038ff9c09fb1e70020479b2f1a067ca4c4d2b0';
+const COOKIE_CALLER_FIXTURE_SHA = '36d3676efebd96a57df5ac47b103c59d3e80920e7f64893e6c47e7312073ffa6';
 const HEADLESS_COOKIE_SOURCE_SHA = '46e9dcd140183c147649804ad72900d335dd7c9c4af255a97c1827a80ad4a10a';
 $fixture=__DIR__.'/cart-session-lifecycle-fixtures.php';
 if(!hash_equals(COOKIE_CALLER_FIXTURE_SHA,hash_file('sha256',$fixture))){fwrite(STDERR,"Controlled native-caller fixture differs.\n");exit(2);}

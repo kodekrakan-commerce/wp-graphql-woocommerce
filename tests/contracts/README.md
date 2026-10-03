@@ -24,6 +24,7 @@ php tests/contracts/cart-session-native-customer-adoption-contract.php
 php tests/contracts/cart-session-armed-adoption-contract.php
 php tests/contracts/cart-session-http-boundary-contract.php
 php tests/contracts/cart-session-owned-handler-contract.php
+php tests/contracts/cart-session-gateway-freeze-contract.php
 php tests/contracts/cart-session-lifecycle-contract.php
 php tests/contracts/cart-session-lifecycle-integration-contract.php
 php tests/contracts/cart-session-checkout-origin-contract.php
@@ -46,6 +47,7 @@ affected-behavior recheck.
 | Creation reservation | Actual storage and canonical immutable attempt marker, checked marker-only commit, internal UUID reuse and exact transfer revalidation; failed/uncertain attempts cannot resume | Driver/SQL/transaction/cache implementations; no native customer insertion, admission or checkout caller |
 | HTTP | Actual exception handling, native headers/status/cookies, response encoding before finalization and output suppression after emission | Application cleanup and finalization |
 | Owned handler | Actual handler, storage, JWT and WooCommerce session parent; preflight, guest creation/retirement marker denial before hydration, identity admission, dirty writes, auth detach and terminal fencing | Lifecycle, WordPress hooks, authentication, SQL and cache |
+| Gateway freeze | Actual native WC_Payment_Gateways/COD and WP hooks with real lifecycle request guard; singleton initialized before first freeze, repeat request stability, pre-invocation factory denial and post-registration/late-change denial | Settings/options/base gateway and scope classifier; no site bootstrap, HTTP, account, order or payment |
 | Lifecycle | Actual lifecycle and HTTP boundary with genuine `WP_Hook`, `plugin.php` and GraphQL executor; captured writers, callback/source cohorts and terminal outcomes | Handler/storage, cart/customer, router, authentication and SQL |
 | Composed integration | Actual handler, operation coordinator, lifecycle, storage and HTTP boundary; genuine hook dispatcher, GraphQL instrumentation/mutation types/executor and AppContext; rejected mixed operations and later filtered input cannot publish partial data or cart credentials; marker denial constructs customer/cart before the request guard and exercises shutdown persistence | Customer/cart, router, authentication, SQL and cache; AppContext is constructed without site bootstrap |
 | Checkout origin | Actual retained self-bound Checkout closure, preparation and final customer branch with the handler, operation and lifecycle; genuine WP hooks, GraphQL instrumentation, mutation type and executor; exact invocation binding, immutable single-root eligibility, one-use consumption and finally cleanup | Controlled before-checkout caller reflects into the actual protected customer branch; natural validation, session update and order processing are omitted; customer/cart, Router, authentication, SQL and cache remain substitutes |

@@ -15,6 +15,7 @@ final class Cart_Session_Lifecycle {
 		'WC_Customer' => '14ca0da46d63445e72053cba79fad368393490e7bf416e53936eeb17c579a452',
 		'WC_Cart' => 'fd1ca75de053a52c7032822ee865da2ae4f3d299afd5f50ac362d888b2703824',
 		'WC_Cart_Session' => '5e871b805ec488e7b1497e33eb83d43334ebd33c1f5feaa670deb2dfa12dd25e',
+		'WC_Payment_Gateways' => 'd474b55ac2bfc8cc6ee5d47ef8c836c9447dba66d5a76b7c9db70e73d13ae758',
 	];
 	private const ORIGIN_SOURCE_COHORT = [
 		'WPGraphQL\\WooCommerce\\Utils\\Cart_Session_Operation' => '0a1f6e9b48e46db49032568b1baf5de17e887b508362e446454968dbfe0834a2',
@@ -73,6 +74,7 @@ final class Cart_Session_Lifecycle {
 		'auth_cookie_expiration', 'secure_auth_cookie', 'secure_logged_in_cookie', 'auth_cookie',
 		'set_auth_cookie', 'set_logged_in_cookie', 'send_auth_cookies', 'set_current_user', 'session_token_manager',
 		'auth_cookie_valid', 'auth_cookie_malformed', 'auth_cookie_bad_username', 'auth_cookie_bad_hash', 'auth_cookie_bad_session_token', 'auth_cookie_expired',
+		'woocommerce_payment_gateways', 'wc_payment_gateways_initialized',
 		'woocommerce_create_order', 'woocommerce_resume_order', 'woocommerce_checkout_customer_id',
 		'woocommerce_checkout_create_order', 'woocommerce_new_order', 'woocommerce_before_order_object_save', 'woocommerce_after_order_object_save',
 		'woocommerce_checkout_order_exception', 'woocommerce_checkout_order_created', 'woocommerce_checkout_update_order_meta',
@@ -262,7 +264,14 @@ final class Cart_Session_Lifecycle {
 	/** This entry runs before resolvers, but all-hook stability is qualified separately. */
 	public function guard_request(): void {
 		$this->cohort( false );
-		if ( null === $this->frozen ) { $this->arm_terminals(); $this->cohort( true ); }
+		if ( null === $this->frozen ) {
+			$this->qualified_source( 'WC_Payment_Gateways' );
+			// Native gateway constructors register callbacks; load them before freezing the registry.
+			$gateways = \WC_Payment_Gateways::instance();
+			if ( ! $gateways instanceof \WC_Payment_Gateways || 'WC_Payment_Gateways' !== get_class( $gateways ) ) { $this->reject(); }
+			$this->arm_terminals();
+			$this->cohort( true );
+		}
 		if ( $this->handler->has_owned_scope() ) { $this->assert_objects(); }
 	}
 

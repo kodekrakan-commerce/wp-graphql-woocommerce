@@ -23,6 +23,11 @@ namespace {
 		}
 		return $input;
 	}
+	/** Controlled factory only; native gateway registration is tested separately. */
+	final class WC_Payment_Gateways {
+		private static $instance;
+		public static function instance() { return self::$instance ??= new self(); }
+	}
 	final class WC_Customer {
 		public function __construct() { add_action( 'shutdown', [ $this, 'save' ], 10, 0 ); }
 		public function get_id() { return HandlerContractBoundary::$user; }
@@ -121,7 +126,7 @@ namespace {
 	define( 'WOOGRAPHQL_CART_SESSION_SOURCE_COHORT', [
 		'WP_Hook' => 'b839c0e5672246bca8db1ab781ec8835f7732f253c375a237cbf6ec536e8d12e',
 		'WPGraphQL\\Router' => getenv( 'WL_INTEGRATION_ADAPTER_SHA' ),
-		'WC_Customer' => $fixture_hash, 'WC_Cart' => $fixture_hash, 'WC_Cart_Session' => $fixture_hash,
+		'WC_Customer' => $fixture_hash, 'WC_Cart' => $fixture_hash, 'WC_Cart_Session' => $fixture_hash, 'WC_Payment_Gateways' => $fixture_hash,
 		QL_Session_Handler::class => getenv( 'WL_INTEGRATION_HANDLER_SHA' ),
 		\WPGraphQL\WooCommerce\Utils\Cart_Session_Operation::class => getenv( 'WL_INTEGRATION_OPERATION_SHA' ),
 		\GraphQL\Executor\ExecutionResult::class => 'native-rejection-source' === $case ? str_repeat( '0', 64 ) : getenv( 'WL_INTEGRATION_RESULT_SHA' ),

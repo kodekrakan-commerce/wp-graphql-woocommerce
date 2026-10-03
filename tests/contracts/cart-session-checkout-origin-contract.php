@@ -17,9 +17,10 @@ const ORIGIN_PINS = [
  'WPGraphQL\\Utils\\InstrumentSchema'=>'6f3bf9d2bd1b49798a0adc22aa843b8f5b74e89f73ebcb91916ea12957ba529c',
  'WP_Hook'=>'b839c0e5672246bca8db1ab781ec8835f7732f253c375a237cbf6ec536e8d12e',
  'WPGraphQL\\Router'=>'42a311af53cb4cf7003521923a31d1d30838eb627b2790b38472f78c801e64b0',
- 'WC_Customer'=>'816145bb0c7c862789c0be477eedc95443ce15769b067ec8abdf61d82bc02d98',
- 'WC_Cart'=>'816145bb0c7c862789c0be477eedc95443ce15769b067ec8abdf61d82bc02d98',
- 'WC_Cart_Session'=>'816145bb0c7c862789c0be477eedc95443ce15769b067ec8abdf61d82bc02d98',
+ 'WC_Customer'=>'4e1334926e8601dde64e7b875b6098a148ed75f806faec572b9f7ea1f486d0f7',
+ 'WC_Cart'=>'4e1334926e8601dde64e7b875b6098a148ed75f806faec572b9f7ea1f486d0f7',
+ 'WC_Cart_Session'=>'4e1334926e8601dde64e7b875b6098a148ed75f806faec572b9f7ea1f486d0f7',
+ 'WC_Payment_Gateways'=>'4e1334926e8601dde64e7b875b6098a148ed75f806faec572b9f7ea1f486d0f7',
 ];
 // SOURCE_PINS_END
 $wp=rtrim(getenv('WL_WORDPRESS_SOURCE')?:'','/');$gql=rtrim(getenv('WL_WPGRAPHQL_SOURCE')?:'','/');
@@ -31,7 +32,7 @@ $paths=[
  'WPGraphQL\\Registry\\TypeRegistry'=>$gql.'/src/Registry/TypeRegistry.php',
  'WPGraphQL\\Type\\WPMutationType'=>$gql.'/src/Type/WPMutationType.php','WPGraphQL\\Utils\\InstrumentSchema'=>$gql.'/src/Utils/InstrumentSchema.php',
  'WP_Hook'=>$wp.'/wp-includes/class-wp-hook.php','WPGraphQL\\Router'=>__DIR__.'/cart-session-owned-handler-fixtures.php',
- 'WC_Customer'=>$fixture,'WC_Cart'=>$fixture,'WC_Cart_Session'=>$fixture];
+ 'WC_Customer'=>$fixture,'WC_Cart'=>$fixture,'WC_Cart_Session'=>$fixture,'WC_Payment_Gateways'=>$fixture];
 foreach($paths as $class=>$path){if(!is_file($path)||!hash_equals(ORIGIN_PINS[$class]??'',hash_file('sha256',$path))){fwrite(STDERR,"Fixed origin source cohort differs.\n");exit(2);}}
 putenv('WL_ORIGIN_SOURCE_PINS='.json_encode(ORIGIN_PINS));putenv('WL_ORIGIN_FIXTURE_SHA='.ORIGIN_PINS['WC_Customer']);
 $cases=[

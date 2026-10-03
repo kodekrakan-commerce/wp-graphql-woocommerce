@@ -77,6 +77,11 @@ namespace {
 	final class Lifecycle_Reviewed_Receiver {
 		public function response( $value ) { lifecycle_event( 'known.receiver' ); return $value; }
 	}
+	/** Controlled factory only; native gateway registration is tested separately. */
+	final class WC_Payment_Gateways {
+		private static $instance;
+		public static function instance() { return self::$instance ??= new self(); }
+	}
 	final class WC_Customer {
 		private $id;
 		public function __construct( $id ) { $this->id = $id; add_action( 'shutdown', [ $this, 'save' ], 10, 0 ); }
@@ -190,7 +195,7 @@ namespace {
 	define( 'WOOGRAPHQL_CART_SESSION_CALLBACK_COHORT', $manifest );
 	$fixture_hash = getenv( 'WL_LIFECYCLE_FIXTURE_SHA' );
 	$sources = [ 'WP_Hook' => 'b839c0e5672246bca8db1ab781ec8835f7732f253c375a237cbf6ec536e8d12e' ];
-	foreach ( [ 'WPGraphQL\\Router', 'WC_Customer', 'WC_Cart', 'WC_Cart_Session', QL_Session_Handler::class ] as $class ) { $sources[ $class ] = $fixture_hash; }
+	foreach ( [ 'WPGraphQL\\Router', 'WC_Customer', 'WC_Cart', 'WC_Cart_Session', 'WC_Payment_Gateways', QL_Session_Handler::class ] as $class ) { $sources[ $class ] = $fixture_hash; }
 	if ( 'source-wrong' === $case ) { $sources['WC_Customer'] = str_repeat( '0', 64 ); }
 	if ( 'source-missing' === $case ) { unset( $sources['WC_Cart'] ); }
 	define( 'WOOGRAPHQL_CART_SESSION_SOURCE_COHORT', $sources );

@@ -8,6 +8,11 @@ namespace {
 	function __( $text, $domain = null ) { return integration_translate( $text ); }
 	function esc_html( $value ) { return $value; }
 	function integration_event( $event ) { HandlerContractBoundary::event( $event ); }
+	/** Controlled factory only; native gateway registration is tested separately. */
+	final class WC_Payment_Gateways {
+		private static $instance;
+		public static function instance() { return self::$instance ??= new self(); }
+	}
 	final class WC_Customer {
 		public function __construct() { add_action( 'shutdown', [ $this, 'save' ], 10, 0 ); }
 		public function get_id() { return HandlerContractBoundary::$user; }
