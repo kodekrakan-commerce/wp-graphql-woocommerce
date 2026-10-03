@@ -12,7 +12,8 @@ require $wc.'/includes/class-wc-datetime.php';
 require $wc.'/includes/traits/trait-wc-item-totals.php';
 require $wc.'/includes/abstracts/abstract-wc-order.php';
 require $wc.'/includes/class-wc-order.php';
-function wc_get_order_statuses(){return ['wc-pending'=>'Pending','wc-processing'=>'Processing','wc-completed'=>'Completed'];}
+function wp_list_pluck($values,$field,$index=null) { $out=[]; foreach($values as $key=>$v) {$out[$index===null?$key:(is_object($v)?$v->$index:$v[$index])] = is_object($v)?$v->$field:$v[$field];} return $out; }
+function wc_get_order_statuses(){return ['wc-pending'=>'Pending','wc-failed'=>'Failed','wc-on-hold'=>'On hold','wc-processing'=>'Processing','wc-completed'=>'Completed'];}
 function wc_get_is_paid_statuses(){return ['processing','completed'];}
 function wc_get_logger(){return new class {function error(...$args){}};}
 function wp_kses_post($s){return $s;} function sanitize_email($s){return $s;}
@@ -26,6 +27,7 @@ function get_current_blog_id(){return 1;} function get_post_meta(...$args){retur
 function wc_format_decimal($value,...$args){return (string)$value;}
 function wp_parse_url($url,$component=-1){return parse_url($url,$component);}
 final class NativeSaveRecorder {
+ function get_internal_meta_keys(){return [];}
  public array $durable=[]; public int $writes=0;
  function update(&$order){++$this->writes;$this->durable=['id'=>$order->get_id(),'status'=>$order->get_status('edit'),'paid'=>$order->get_date_paid('edit')];}
  function get_order_item_type(...$args){return 'line_item';} function read_items(...$args){return [];}
@@ -34,7 +36,7 @@ final class NativeSaveRecorder {
 function save_property($o,$name,$value){(new ReflectionProperty($o,$name))->setValue($o,$value);}
 function native_save_fixture(){
  [$h,$db]=owned_start(17);$order=(new ReflectionClass(WC_Order::class))->newInstanceWithoutConstructor();
- $order->set_id(91); $order->set_status('pending'); $order->set_object_read(true);$order->set_customer_id(17);
+ $order->set_id(91); $order->set_object_read(true); save_property($order,'meta_data',[]); $order->init_meta_data([(object)['meta_id'=>1,'meta_key'=>'_wl_checkout_operation_uuid','meta_value'=>'11111111-1111-4111-8111-111111111111']]); $order->set_status('pending'); $order->set_object_read(true);$order->set_customer_id(17);
  $store=new NativeSaveRecorder();save_property($order,'data_store',$store);
  save_property($order,'items',['line_items'=>[],'tax_lines'=>[],'shipping_lines'=>[],'fee_lines'=>[],'coupon_lines'=>[]]);
  $attempt=(object)['uuid'=>'11111111-1111-4111-8111-111111111111','adopted'=>true,'protected'=>true,'order'=>$order,'store'=>$store,'saved'=>false,'save_active'=>false,'save_failed'=>false,'save_started'=>0,'save_completed'=>0,'payment_started'=>false,'success'=>false];

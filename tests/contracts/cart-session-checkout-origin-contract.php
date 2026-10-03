@@ -8,10 +8,10 @@ error_reporting(E_ALL); ini_set('display_errors','0'); ini_set('log_errors','0')
 $owner=dirname(__DIR__,2);$fixture=__DIR__.'/cart-session-checkout-origin-fixtures.php';
 // SOURCE_PINS_BEGIN
 const ORIGIN_PINS = [
- 'WPGraphQL\\WooCommerce\\Utils\\QL_Session_Handler'=>'2d27f23d0d34434c950e1eda638b580f2109a981a6b805890f7397011ca7bb12',
+ 'WPGraphQL\\WooCommerce\\Utils\\QL_Session_Handler'=>'ca4176be3b115927124f254b0ac36f005d30cf9f2e9a8d3e1f04ea411878af80',
  'WPGraphQL\\WooCommerce\\Utils\\Cart_Session_Operation'=>'0a1f6e9b48e46db49032568b1baf5de17e887b508362e446454968dbfe0834a2',
- 'WPGraphQL\\WooCommerce\\Mutation\\Checkout'=>'18516e37a4c65538426a52d7c12ce9f4b7a99299e585f30cf3b257cd0ae615ac',
- 'WPGraphQL\\WooCommerce\\Data\\Mutation\\Checkout_Mutation'=>'d86c544a0c5f2998c9f1c0de7e6a6f8598760e1060ee490cdfdb71444dd0dd56',
+ 'WPGraphQL\\WooCommerce\\Mutation\\Checkout'=>'013c4c0aa8bf172fa80f05d5b512e7f8a74b1a51ac2abbb4f8d44bdd601ac8ef',
+ 'WPGraphQL\\WooCommerce\\Data\\Mutation\\Checkout_Mutation'=>'920c0de6b40db4a1b543750ce839e2896b69360934b0b1714d68519eac2c1af7',
  'WPGraphQL\\Registry\\TypeRegistry'=>'f8c3f6af8596a01faa88f09a51637bf0b435ebc86fd3946dcaccdadf45b059cc',
  'WPGraphQL\\Type\\WPMutationType'=>'33bfcaeec264a56c94367a9d49dfa61d1e9f21d24acfe903adca9fc4295207e7',
  'WPGraphQL\\Utils\\InstrumentSchema'=>'6f3bf9d2bd1b49798a0adc22aa843b8f5b74e89f73ebcb91916ea12957ba529c',

@@ -9,7 +9,7 @@ namespace WPGraphQL\WooCommerce\Utils;
 final class Cart_Session_Lifecycle {
 
 	private const SOURCE_COHORT = [
-		'WPGraphQL\\WooCommerce\\Utils\\QL_Session_Handler' => '2d27f23d0d34434c950e1eda638b580f2109a981a6b805890f7397011ca7bb12',
+		'WPGraphQL\\WooCommerce\\Utils\\QL_Session_Handler' => 'ca4176be3b115927124f254b0ac36f005d30cf9f2e9a8d3e1f04ea411878af80',
 		'WP_Hook' => 'b839c0e5672246bca8db1ab781ec8835f7732f253c375a237cbf6ec536e8d12e',
 		'WPGraphQL\\Router' => '4c85426fdc7223c69358ed70e68ba45e4c5f632a4234f860ebba41d68ec32ea7',
 		'WC_Customer' => '14ca0da46d63445e72053cba79fad368393490e7bf416e53936eeb17c579a452',
@@ -19,8 +19,8 @@ final class Cart_Session_Lifecycle {
 	];
 	private const ORIGIN_SOURCE_COHORT = [
 		'WPGraphQL\\WooCommerce\\Utils\\Cart_Session_Operation' => '0a1f6e9b48e46db49032568b1baf5de17e887b508362e446454968dbfe0834a2',
-		'WPGraphQL\\WooCommerce\\Mutation\\Checkout' => '18516e37a4c65538426a52d7c12ce9f4b7a99299e585f30cf3b257cd0ae615ac',
-		'WPGraphQL\\WooCommerce\\Data\\Mutation\\Checkout_Mutation' => 'd86c544a0c5f2998c9f1c0de7e6a6f8598760e1060ee490cdfdb71444dd0dd56',
+		'WPGraphQL\\WooCommerce\\Mutation\\Checkout' => '013c4c0aa8bf172fa80f05d5b512e7f8a74b1a51ac2abbb4f8d44bdd601ac8ef',
+		'WPGraphQL\\WooCommerce\\Data\\Mutation\\Checkout_Mutation' => '920c0de6b40db4a1b543750ce839e2896b69360934b0b1714d68519eac2c1af7',
 		'WPGraphQL\\Type\\WPMutationType' => '33bfcaeec264a56c94367a9d49dfa61d1e9f21d24acfe903adca9fc4295207e7',
 		'WPGraphQL\\Utils\\InstrumentSchema' => '6f3bf9d2bd1b49798a0adc22aa843b8f5b74e89f73ebcb91916ea12957ba529c',
 	];
@@ -45,6 +45,16 @@ final class Cart_Session_Lifecycle {
 		'WC_Abstract_Order' => '59a07e58b30a198491977da76cbff3c01f497fc09f5fdac818c6806fdc3b2ff6',
 		'WC_Data_Store' => 'e7b9c236bb0d879c5388ba7bfe0ff0afb7775c085422d33e6206481a32178f43',
 		'WC_Order_Data_Store_CPT' => '1f1b0e4523c53a13c0b04be74300f76e8c79180d5d23fc123ddbaf95ed180192',
+	];
+	private const DEFERRED_SOURCE_COHORT = [
+		'function:wc_get_is_paid_statuses' => '4b1132af35887f07a18c99520325323bd2eeca16f135b5d8cb6780f9124ad2dd',
+		'function:woonuxt_defer_stripe_checkout' => 'ee2232b4c2fa54f6ed017fd99d3d501512960ea1212cf6259cdb5ca53268be58',
+		'WC_Data' => 'a62ab1ea96c7aee3413110d0e5895abe27e9031ae6eca16940635ee60d5ec4d7',
+		'WC_Meta_Data' => '185aa239222c773932e5f1f23b71079d1157d682764a3fecdf77060b7d8321e8',
+		'WC_Data_Store_WP' => '8b0d25372e19517bb8d7ccab613c303aef62be78c0751c1403c9448c2dbac2ca',
+		'function:add_metadata' => 'b1b49d1d3ddbf10d0f17286f53c30ce9582c636a4679f9a0ef92ee5ebb020a3e',
+		'function:update_metadata_by_mid' => 'b1b49d1d3ddbf10d0f17286f53c30ce9582c636a4679f9a0ef92ee5ebb020a3e',
+		'function:delete_metadata_by_mid' => 'b1b49d1d3ddbf10d0f17286f53c30ce9582c636a4679f9a0ef92ee5ebb020a3e',
 	];
 	private const OWN_CALLBACKS = [
 		'graphql_process_http_request_response' => 'send_response',
@@ -81,6 +91,17 @@ final class Cart_Session_Lifecycle {
 		'woocommerce_pre_payment_complete', 'woocommerce_valid_order_statuses_for_payment_complete',
 		'woocommerce_payment_complete', 'woocommerce_payment_complete_order_status',
 		'woocommerce_checkout_order_processed', 'graphql_woocommerce_after_checkout',
+		'graphql_woocommerce_before_checkout_meta_save', 'graphql_woocommerce_checkout_payment_result',
+		'woocommerce_order_is_paid', 'woocommerce_order_needs_payment', 'woocommerce_valid_order_statuses_for_payment', 'woocommerce_order_is_paid_statuses',
+		'woocommerce_order_get_payment_method', 'woocommerce_order_get_status', 'woocommerce_order_get_transaction_id',
+		'woocommerce_order_get_total', 'woocommerce_order_get_currency', 'woocommerce_order_get_customer_id', 'woocommerce_order_get_order_key',
+		'woocommerce_order_get__woonuxt_deferred_payment', 'woocommerce_order_get__stripe_source_id', 'woocommerce_order_get__stripe_intent_id',
+		'added_order_meta', 'updated_order_meta', 'deleted_order_meta', 'woocommerce_data_store_wp_post_read_meta',
+		'add_post_metadata', 'update_post_metadata_by_mid', 'delete_post_metadata_by_mid', 'get_post_metadata_by_mid',
+		'add_post_meta', 'added_post_meta', 'update_post_meta', 'updated_post_meta', 'update_postmeta', 'updated_postmeta',
+		'delete_post_meta', 'deleted_post_meta', 'delete_postmeta', 'deleted_postmeta',
+		'get_object_subtype_post', 'sanitize_post_meta__woonuxt_deferred_payment', 'sanitize_post_meta__wl_checkout_operation_uuid',
+		'sanitize_post_meta__woonuxt_deferred_payment_for_shop_order', 'sanitize_post_meta__wl_checkout_operation_uuid_for_shop_order',
 	];
 	private $handler;
 	private $boundary;
@@ -103,13 +124,14 @@ final class Cart_Session_Lifecycle {
 	public function __construct( QL_Session_Handler $handler, string $credential_header, array $owned_cookie_names ) {
 		$this->handler = $handler;
 		$this->sources = defined( 'WOOGRAPHQL_CART_SESSION_SOURCE_COHORT' )
-			? WOOGRAPHQL_CART_SESSION_SOURCE_COHORT : array_merge( self::SOURCE_COHORT, self::ORIGIN_SOURCE_COHORT, self::RESPONSE_SOURCE_COHORT, self::CREATION_SOURCE_COHORT );
+			? WOOGRAPHQL_CART_SESSION_SOURCE_COHORT : array_merge( self::SOURCE_COHORT, self::ORIGIN_SOURCE_COHORT, self::RESPONSE_SOURCE_COHORT, self::CREATION_SOURCE_COHORT, self::DEFERRED_SOURCE_COHORT );
 		$this->manifest = defined( 'WOOGRAPHQL_CART_SESSION_CALLBACK_COHORT' )
 			? WOOGRAPHQL_CART_SESSION_CALLBACK_COHORT : [];
 		$this->boundary = new Cart_Session_HTTP_Boundary( [ $this, 'cleanup' ], [ $credential_header ], $owned_cookie_names );
 	}
 
 	private function reject(): never {
+		if ( $this->handler->protects_checkout_order() ) { $this->handler->fail_checkout_order(); }
 		throw new Cart_Session_Error( Cart_Session_Error::UNAVAILABLE );
 	}
 
@@ -135,8 +157,11 @@ final class Cart_Session_Lifecycle {
 		foreach ( self::SOURCE_COHORT as $class => $unused ) { $this->qualified_source( $class ); }
 		if ( ! is_array( $this->manifest ) ) { $this->reject(); }
 		foreach ( self::COHORT_HOOKS as $hook ) {
-			if ( 'all' !== $hook ) { add_filter( $hook, [ $this, 'guard_cohort_entry' ], PHP_INT_MIN, 1 ); }
+			// Core sanitize_meta uses has_filter(subtype) to select subtype over generic.
+			// An owned specific guard would invent a subtype and skip the real generic callback.
+			if ( 'all' !== $hook && ! str_starts_with( $hook, 'sanitize_post_meta_' ) ) { add_filter( $hook, [ $this, 'guard_cohort_entry' ], PHP_INT_MIN, 1 ); }
 		}
+		add_filter( 'all', [ $this, 'guard_sanitizer_dispatch' ], PHP_INT_MIN, 1 );
 		add_filter( 'woocommerce_cart_session_initialize', [ $this, 'capture_cart_session' ], PHP_INT_MAX, 2 );
 		add_action( 'do_graphql_request', [ $this, 'guard_request' ], PHP_INT_MIN, 0 );
 		add_action( 'wp_loaded', [ $this, 'guard_created_objects' ], PHP_INT_MIN, 0 );
@@ -167,7 +192,10 @@ final class Cart_Session_Lifecycle {
 
 	/** Exact known owner callbacks are not a file-wide whitelist. */
 	private function owned_callback( string $hook, $callback, int $priority, int $arguments ): bool {
-		if ( 'all' !== $hook && [ $this, 'guard_cohort_entry' ] === $callback ) {
+		if ( 'all' === $hook && [ $this, 'guard_sanitizer_dispatch' ] === $callback ) {
+			return PHP_INT_MIN === $priority && 1 === $arguments;
+		}
+		if ( 'all' !== $hook && ! str_starts_with( $hook, 'sanitize_post_meta_' ) && [ $this, 'guard_cohort_entry' ] === $callback ) {
 			return PHP_INT_MIN === $priority && 1 === $arguments;
 		}
 		if ( 'woocommerce_before_order_object_save' === $hook && [ $this, 'checkout_order_saving' ] === $callback ) {
@@ -232,7 +260,11 @@ final class Cart_Session_Lifecycle {
 	private function cohort( bool $freeze ): void {
 		$this->qualified_source( 'WP_Hook' );
 		$current = [];
-		foreach ( self::COHORT_HOOKS as $hook ) {
+		$hooks = self::COHORT_HOOKS;
+		foreach ( array_keys( $GLOBALS['wp_filter'] ?? [] ) as $hook ) {
+			if ( is_string( $hook ) && ( str_starts_with( $hook, 'sanitize_post_meta_' ) || str_starts_with( $hook, 'woocommerce_order_get_' ) ) && ! in_array( $hook, $hooks, true ) ) { $hooks[] = $hook; }
+		}
+		foreach ( $hooks as $hook ) {
 			$registry = $GLOBALS['wp_filter'][ $hook ] ?? null;
 			$entries = [];
 			if ( null !== $registry ) {
@@ -297,6 +329,13 @@ final class Cart_Session_Lifecycle {
 		return $value;
 	}
 
+	/** Native all dispatch precedes sanitizer callbacks without changing has_filter. */
+	public function guard_sanitizer_dispatch( $hook ): void {
+		if ( is_string( $hook ) && str_starts_with( $hook, 'sanitize_post_meta_' ) ) {
+			$this->cohort( false );
+		}
+	}
+
 	public function guard_created_objects(): void {
 		if ( null !== $this->cart_session && ! $this->terminal && ! $this->handler->is_auth_detached() ) { $this->assert_objects(); }
 	}
@@ -349,7 +388,7 @@ final class Cart_Session_Lifecycle {
 		if ( null !== $this->creation_context || ! function_exists( 'is_multisite' ) || is_multisite() ) { $this->reject(); }
 		foreach ( [ 'wc_create_new_customer', 'wp_insert_user', 'wc_set_customer_auth_cookie', 'wp_set_current_user',
 			'wp_set_auth_cookie', 'wp_generate_auth_cookie', 'wp_validate_auth_cookie' ] as $function ) { $this->qualified_source( 'function:' . $function ); }
-		foreach ( [ 'WP_User', 'WP_Session_Tokens', 'WP_User_Meta_Session_Tokens', 'WC_Checkout', 'WC_Order', 'WC_Abstract_Order', 'WC_Data_Store', 'WC_Order_Data_Store_CPT' ] as $class ) { $this->qualified_source( $class ); }
+		foreach ( [ 'WP_User', 'WP_Session_Tokens', 'WP_User_Meta_Session_Tokens', 'WC_Checkout', 'WC_Order', 'WC_Abstract_Order', 'WC_Data_Store', 'WC_Order_Data_Store_CPT', 'WC_Data', 'WC_Meta_Data', 'WC_Data_Store_WP', 'function:add_metadata', 'function:update_metadata_by_mid', 'function:delete_metadata_by_mid' ] as $class ) { $this->qualified_source( $class ); }
 		$this->creation_loaders = $this->checked_checkout_loaders( $context ); $this->creation_context = $context;
 	}
 
@@ -473,6 +512,30 @@ final class Cart_Session_Lifecycle {
 	public function checkout_order_saved( $order, $store ): void {
 		$this->require_tail( 'woocommerce_after_order_object_save', 'checkout_order_saved' ); $this->handler->checkout_order_saved( $order, $store );
 	}
+	/** Exact Settings writer, explicit fourth receiver argument, frozen ordered registry. */
+	public function qualify_checkout_deferred_payment(): void {
+		$this->assert_objects(); $this->cohort( false );
+		foreach ( self::DEFERRED_SOURCE_COHORT as $class => $unused ) { $this->qualified_source( $class ); }
+		$this->qualified_source( 'function:woonuxt_defer_stripe_checkout' );
+		$registry = $GLOBALS['wp_filter']['graphql_woocommerce_checkout_payment_result'] ?? null;
+		$writers = [];
+		if ( $registry instanceof \WP_Hook ) {
+			foreach ( $registry->callbacks as $priority => $callbacks ) {
+				foreach ( $callbacks as $entry ) {
+					if ( [ $this, 'guard_cohort_entry' ] === ( $entry['function'] ?? null ) ) { continue; }
+					$writers[] = [ $priority, $entry['function'] ?? null, $entry['accepted_args'] ?? null ];
+				}
+			}
+		}
+		if ( [ [ 10, 'woonuxt_defer_stripe_checkout', 4 ] ] !== $writers ) { $this->reject(); }
+		$this->cohort( true );
+	}
+	public function assert_checkout_deferred_cohort(): void {
+		$this->assert_objects(); $this->cohort( false );
+		foreach ( self::DEFERRED_SOURCE_COHORT as $class => $unused ) { $this->qualified_source( $class ); }
+		$this->qualified_source( 'function:woonuxt_defer_stripe_checkout' );
+	}
+
 	public function flush_empty_checkout_cart(): void {
 		$this->assert_objects();
 		if ( ! $this->handler->protects_checkout_order() || ! $this->cart->is_empty() ) { $this->reject(); }

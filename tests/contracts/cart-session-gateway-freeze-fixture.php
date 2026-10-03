@@ -25,6 +25,8 @@ namespace {
   public function get_option_key(){return 'woocommerce_'.$this->id.'_settings';}
  }
  class GatewayFenceHandler {
+  // This gateway-only fixture never enters protected checkout creation.
+  public function protects_checkout_order(){return false;}
   public function is_cart_operation_callback($h,$c,$p,$a){return false;}
   public function has_owned_scope(){return false;}
  }

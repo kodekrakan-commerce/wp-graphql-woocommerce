@@ -1011,7 +1011,7 @@ class QL_Session_Handler extends WC_Session_Handler {
 			if ( null !== $this->checkout_attempt ) {
 				if ( ! $this->checkout_attempt->success || ! $this->checkout_attempt->saved || ! $this->checkout_attempt->order
 					|| ! \WC()->cart->is_empty() ) { throw new Cart_Session_Error( Cart_Session_Error::UNAVAILABLE ); }
-				$this->checkout_free_order_succeeded( $this->checkout_attempt->order );
+				$this->revalidate_checkout_order_success( $this->checkout_attempt->order );
 				$this->owned_storage->complete_checkout_order( $this->_data, $this->_session_expiration );
 				$this->_dirty = false;
 			} else { $this->save_data(); }
@@ -1083,7 +1083,7 @@ class QL_Session_Handler extends WC_Session_Handler {
 		$this->owned_operation->consume_checkout_creation_origin( $data, $context, $info );
 		$this->owned_lifecycle->qualify_checkout_creation( $context );
 		$this->checkout_attempt = (object) [ 'uuid' => null, 'user_id' => 0, 'auth_expected' => false,
-			'adopted' => false, 'protected' => false, 'selected_customer_token' => $this->customer_token_prepared, 'order' => null, 'store' => null, 'saved' => false, 'save_active' => false, 'save_failed' => false, 'save_started' => 0, 'save_completed' => 0, 'payment_started' => false, 'success' => false ];
+			'adopted' => false, 'protected' => false, 'selected_customer_token' => $this->customer_token_prepared, 'order' => null, 'store' => null, 'saved' => false, 'save_active' => false, 'save_failed' => false, 'save_started' => 0, 'save_completed' => 0, 'payment_started' => false, 'phase' => 'creation', 'outcome' => null, 'deferred_checked' => false, 'checkout_meta_done' => false, 'success' => false ];
 		try {
 			$this->owned_storage->reserve_checkout_creation( $GLOBALS['wpdb']->options );
 			$this->owned_lifecycle->close_writers();
@@ -1143,7 +1143,7 @@ class QL_Session_Handler extends WC_Session_Handler {
 		if ( ! $this->protects_checkout_order() ) { return; }
 		$this->assert_session_ready(); $this->assert_owned_scope();
 		if ( $this->checkout_attempt->order || ! $order instanceof \WC_Order || get_class( $order ) !== 'WC_Order'
-			|| 0 !== $order->get_id() || $this->admitted_user_id !== (int) $order->get_customer_id( 'edit' ) ) { throw new Cart_Session_Error( Cart_Session_Error::UNAVAILABLE ); }
+			|| 0 !== $order->get_id() || $this->admitted_user_id !== (int) $order->get_customer_id( 'edit' ) ) { $this->fail_checkout_order(); }
 		$order->add_meta_data( '_wl_checkout_operation_uuid', $this->checkout_attempt->uuid, true );
 		$this->checkout_attempt->order = $order; $this->checkout_attempt->store = $order->get_data_store();
 	}
@@ -1153,46 +1153,69 @@ class QL_Session_Handler extends WC_Session_Handler {
 		$this->assert_session_ready(); $this->assert_owned_scope();
 		if ( $order !== $this->checkout_attempt->order || ! is_int( $id ) || $id <= 0 || $id !== $order->get_id()
 			|| $this->admitted_user_id !== (int) $order->get_customer_id( 'edit' )
-			|| $this->checkout_attempt->uuid !== $order->get_meta( '_wl_checkout_operation_uuid', true, 'edit' ) ) { throw new Cart_Session_Error( Cart_Session_Error::UNAVAILABLE ); }
+			|| $this->checkout_attempt->uuid !== $order->get_meta( '_wl_checkout_operation_uuid', true, 'edit' ) ) { $this->fail_checkout_order(); }
 		$this->owned_storage->bind_checkout_order( $id );
+	}
+
+	/** Failure is latched before throwing: native WC_Abstract_Order::save catches exceptions. */
+	public function fail_checkout_order(): never {
+		if ( $this->checkout_attempt ) { $this->checkout_attempt->save_failed = true; $this->checkout_attempt->saved = false; $this->checkout_attempt->success = false; }
+		$this->latch_owned_failure();
+		throw new Cart_Session_Error( Cart_Session_Error::UNAVAILABLE );
 	}
 
 	/** Runs before any qualified external before-save callback can fail. */
 	public function checkout_order_saving( $order, $store ): void {
-		if ( ! $this->protects_checkout_order() || $order !== $this->checkout_attempt->order ) { return; }
-		$this->assert_session_ready(); $this->assert_owned_scope();
-		if ( $store !== $this->checkout_attempt->store ) { throw new Cart_Session_Error( Cart_Session_Error::UNAVAILABLE ); }
-		if ( $this->checkout_attempt->save_active || $this->checkout_attempt->save_failed ) {
-			$this->checkout_attempt->save_failed = true; $this->checkout_attempt->saved = false;
-			throw new Cart_Session_Error( Cart_Session_Error::UNAVAILABLE );
+		if ( ! $this->protects_checkout_order() ) { return; }
+		$a = $this->checkout_attempt;
+		if ( $order !== $a->order ) {
+			if ( $order instanceof \WC_Order && $a->order && $order->get_id() === $a->order->get_id() ) { $this->fail_checkout_order(); }
+			return;
 		}
-		$this->checkout_attempt->save_active = true;
-		++$this->checkout_attempt->save_started;
-		$this->checkout_attempt->saved = false;
+		$this->assert_session_ready(); $this->assert_owned_scope();
+		if ( $store !== $a->store || $order->get_data_store() !== $a->store || $a->save_active || $a->save_failed
+			|| ( 'checkout_meta' === ( $a->phase ?? null ) && $a->save_started !== $a->meta_save_before )
+			|| $a->success || in_array( $a->phase ?? 'creation', [ 'deferred', 'readback', 'deferred_checked' ], true ) ) { $this->fail_checkout_order(); }
+		$a->save_active = true; ++$a->save_started; $a->saved = false;
+	}
+
+	/** Explicit full-save role; an earlier native create/save cannot prove this write. */
+	public function begin_checkout_meta_save( $order ): void {
+		$this->verify_checkout_order_return( $order->get_id(), $order );
+		$a = $this->checkout_attempt;
+		if ( 'creation' !== ( $a->phase ?? 'creation' ) || $a->payment_started || ( $a->checkout_meta_done ?? false ) ) { $this->fail_checkout_order(); }
+		$a->phase = 'checkout_meta'; $a->meta_save_before = $a->save_completed;
+	}
+	public function finish_checkout_meta_save( $order ): void {
+		$this->verify_checkout_order_return( $order->get_id(), $order );
+		$a = $this->checkout_attempt;
+		if ( 'checkout_meta' !== ( $a->phase ?? null ) || $a->save_completed !== $a->meta_save_before + 1 ) { $this->fail_checkout_order(); }
+		$a->phase = 'creation'; $a->checkout_meta_done = true;
 	}
 
 	/** A previous successful create/save cannot authorize the payment save. */
 	public function begin_checkout_free_payment( $order ): void {
 		if ( ! $this->protects_checkout_order() ) { return; }
 		$this->verify_checkout_order_return( $order->get_id(), $order );
-		if ( $this->checkout_attempt->payment_started ) { throw new Cart_Session_Error( Cart_Session_Error::UNAVAILABLE ); }
-		$this->checkout_attempt->payment_started = true;
-		$this->checkout_attempt->saved = false;
-		$this->checkout_attempt->save_started = 0;
-		$this->checkout_attempt->save_active = false;
-		$this->checkout_attempt->save_completed = 0;
+		$a = $this->checkout_attempt;
+		if ( $a->payment_started || 'creation' !== ( $a->phase ?? 'creation' ) || $order->needs_payment() || 0.0 !== (float) $order->get_total( 'edit' ) ) { $this->fail_checkout_order(); }
+		$a->payment_started = true; $a->outcome = 'free'; $a->phase = 'free_payment';
+		$a->saved = false; $a->save_started = 0; $a->save_active = false; $a->save_completed = 0;
 	}
 
 	public function checkout_order_saved( $order, $store ): void {
-		if ( ! $this->protects_checkout_order() || $order !== $this->checkout_attempt->order ) { return; }
+		if ( ! $this->protects_checkout_order() ) { return; }
+		$a = $this->checkout_attempt;
+		if ( $order !== $a->order ) {
+			if ( $order instanceof \WC_Order && $a->order && $order->get_id() === $a->order->get_id() ) { $this->fail_checkout_order(); }
+			return;
+		}
 		$this->assert_session_ready(); $this->assert_owned_scope();
 		$fence = $this->owned_storage->read_checkout_order_attempt( $GLOBALS['wpdb']->options );
-		if ( ! $this->checkout_attempt->save_active || $this->checkout_attempt->save_failed
-			|| $store !== $this->checkout_attempt->store || ! is_array( $fence ) || $order->get_id() <= 0 || $fence['order_id'] !== $order->get_id()
-			|| $fence['operation_uuid'] !== $this->checkout_attempt->uuid ) { throw new Cart_Session_Error( Cart_Session_Error::UNAVAILABLE ); }
-		$this->checkout_attempt->save_active = false;
-		$this->checkout_attempt->save_completed = $this->checkout_attempt->save_started;
-		$this->checkout_attempt->saved = $this->checkout_attempt->save_started > 0;
+		if ( ! $a->save_active || $a->save_failed || $store !== $a->store || $order->get_data_store() !== $a->store
+			|| ! is_array( $fence ) || $order->get_id() <= 0 || $fence['order_id'] !== $order->get_id()
+			|| $fence['operation_uuid'] !== $a->uuid ) { $this->fail_checkout_order(); }
+		$a->save_active = false; $a->save_completed = $a->save_started; $a->saved = $a->save_started > 0;
 	}
 
 	public function created_checkout_order( $id ) {
@@ -1201,22 +1224,82 @@ class QL_Session_Handler extends WC_Session_Handler {
 		return $order;
 	}
 
+	/** Shared native creation proof; outcome-specific payment evidence lives below. */
 	public function verify_checkout_order_return( $id, $order ): void {
 		if ( ! $this->protects_checkout_order() ) { return; }
 		$this->assert_session_ready(); $this->assert_owned_scope();
-		if ( ! is_int( $id ) || $id <= 0 || ! $this->checkout_attempt->saved || $this->checkout_attempt->save_active || $this->checkout_attempt->save_failed || $order !== $this->checkout_attempt->order
-			|| $order->get_id() !== $id || $order->needs_payment() || 0.0 !== (float) $order->get_total( 'edit' ) ) { throw new Cart_Session_Error( Cart_Session_Error::UNAVAILABLE ); }
+		$a = $this->checkout_attempt;
+		$fence = $this->owned_storage->read_checkout_order_attempt( $GLOBALS['wpdb']->options );
+		if ( ! is_int( $id ) || $id <= 0 || ! $a->saved || $a->save_active || $a->save_failed || $order !== $a->order
+			|| $order->get_id() !== $id || $order->get_data_store() !== $a->store || $a->save_started < 1 || $a->save_completed !== $a->save_started
+			|| $this->admitted_user_id !== (int) $order->get_customer_id( 'edit' ) || $a->uuid !== $order->get_meta( '_wl_checkout_operation_uuid', true, 'edit' )
+			|| ! is_array( $fence ) || 'pending' !== $fence['state'] || $id !== $fence['order_id'] || $a->uuid !== $fence['operation_uuid'] ) { $this->fail_checkout_order(); }
+	}
+
+	private function assert_checkout_deferred_invariants( $order ): void {
+		$a = $this->checkout_attempt;
+		$this->verify_checkout_order_return( $order->get_id(), $order );
+		if ( ! is_finite( (float) $order->get_total( 'edit' ) ) || (float) $order->get_total( 'edit' ) <= 0
+			|| 'stripe' !== $order->get_payment_method( 'edit' ) || 'pending' !== $order->get_status( 'edit' ) || $order->is_paid()
+			|| $order->get_date_paid( 'edit' ) || '' !== $order->get_transaction_id( 'edit' )
+			|| $order->get_meta( '_stripe_source_id', true, 'edit' ) || $order->get_meta( '_stripe_intent_id', true, 'edit' )
+			|| ( isset( $a->deferred_total ) && ( $a->deferred_total !== $order->get_total( 'edit' ) || $a->deferred_currency !== $order->get_currency( 'edit' ) ) ) ) { $this->fail_checkout_order(); }
+	}
+
+	public function begin_checkout_deferred_payment( $order ): void {
+		$this->assert_checkout_deferred_invariants( $order );
+		$a = $this->checkout_attempt;
+		if ( $a->payment_started || 'creation' !== ( $a->phase ?? 'creation' ) || $order->get_meta( '_woonuxt_deferred_payment', true, 'edit' ) ) { $this->fail_checkout_order(); }
+		$this->owned_lifecycle->qualify_checkout_deferred_payment();
+		$a->payment_started = true; $a->outcome = 'deferred'; $a->phase = 'deferred'; $a->deferred_checked = false;
+		$a->deferred_total = $order->get_total( 'edit' ); $a->deferred_currency = $order->get_currency( 'edit' );
+	}
+
+	/** Native forced read bypasses the WC metadata cache; void save_meta_data is not proof. */
+	public function finish_checkout_deferred_payment( $order, $result ): void {
+		$a = $this->checkout_attempt;
+		if ( 'deferred' !== ( $a->phase ?? null ) || $a->deferred_checked || [ 'result' => 'pending', 'redirect' => '' ] !== $result ) { $this->fail_checkout_order(); }
+		$this->assert_checkout_deferred_invariants( $order ); $this->owned_lifecycle->assert_checkout_deferred_cohort();
+		$a->phase = 'readback';
+		try { $order->read_meta_data( true ); } catch ( \Throwable $error ) { $this->fail_checkout_order(); }
+		$this->owned_lifecycle->assert_checkout_deferred_cohort(); $this->assert_checkout_deferred_invariants( $order );
+		$this->assert_checkout_persisted_deferred_meta( $order );
+		$a->deferred_checked = true; $a->phase = 'deferred_checked';
+	}
+
+	private function assert_checkout_persisted_deferred_meta( $order ): void {
+		$a = $this->checkout_attempt;
+		foreach ( [ '_woonuxt_deferred_payment' => 'yes', '_wl_checkout_operation_uuid' => $a->uuid ] as $key => $value ) {
+			$matches = [];
+			foreach ( $order->get_meta_data() as $meta ) { if ( $meta->key === $key ) { $matches[] = $meta; } }
+			if ( 1 !== count( $matches ) || ! is_int( $matches[0]->id ) || $matches[0]->id <= 0 || $matches[0]->value !== $value ) { $this->fail_checkout_order(); }
+		}
+	}
+
+	public function checkout_deferred_order_succeeded( $order ): void {
+		$this->assert_checkout_deferred_invariants( $order );
+		$a = $this->checkout_attempt;
+		if ( 'deferred_checked' !== ( $a->phase ?? null ) || ! $a->deferred_checked || ! \WC()->cart->is_empty()
+			|| 'yes' !== $order->get_meta( '_woonuxt_deferred_payment', true, 'edit' ) ) { $this->fail_checkout_order(); }
+		$this->owned_lifecycle->assert_checkout_deferred_cohort(); $this->assert_checkout_persisted_deferred_meta( $order );
+		unset( $this->_data['order_awaiting_payment'], $this->_data['reload_checkout'] );
+		$this->_dirty = true; $a->success = true;
 	}
 
 	public function checkout_free_order_succeeded( $order ): void {
 		if ( ! $this->protects_checkout_order() ) { return; }
 		$this->verify_checkout_order_return( $order->get_id(), $order );
-		if ( ! $this->checkout_attempt->payment_started || $this->checkout_attempt->save_started < 1
-			|| $this->checkout_attempt->save_completed !== $this->checkout_attempt->save_started
+		if ( ! $this->checkout_attempt->payment_started || 'free' !== ( $this->checkout_attempt->outcome ?? 'free' )
+			|| $order->needs_payment() || 0.0 !== (float) $order->get_total( 'edit' )
 			|| ! in_array( $order->get_status( 'edit' ), [ 'processing', 'completed' ], true )
-			|| ! $order->get_date_paid( 'edit' ) || ! \WC()->cart->is_empty() ) { throw new Cart_Session_Error( Cart_Session_Error::UNAVAILABLE ); }
+			|| ! $order->get_date_paid( 'edit' ) || ! \WC()->cart->is_empty() ) { $this->fail_checkout_order(); }
 		unset( $this->_data['order_awaiting_payment'], $this->_data['reload_checkout'] );
 		$this->_dirty = true; $this->checkout_attempt->success = true;
+	}
+
+	public function revalidate_checkout_order_success( $order ): void {
+		if ( 'deferred' === ( $this->checkout_attempt->outcome ?? null ) ) { $this->checkout_deferred_order_succeeded( $order ); }
+		else { $this->checkout_free_order_succeeded( $order ); }
 	}
 
 	/** Always close on the original receiver; no SQL, signing or hook dispatch. */

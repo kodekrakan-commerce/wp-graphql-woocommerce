@@ -20,6 +20,9 @@ php tests/contracts/cart-session-checkout-order-contract.php
 # Requires WL_HEADLESS_LOGIN_SOURCE pointing at the qualified Headless Login tree.
 php tests/contracts/cart-session-native-cookie-contract.php
 php tests/contracts/cart-session-native-order-save-contract.php
+# New source-only paid controls additionally require WL_SETTINGS_SOURCE.
+php tests/contracts/cart-session-paid-checkout-contract.php
+php tests/contracts/cart-session-paid-cohort-contract.php
 php tests/contracts/cart-session-native-customer-adoption-contract.php
 php tests/contracts/cart-session-armed-adoption-contract.php
 php tests/contracts/cart-session-http-boundary-contract.php
@@ -133,3 +136,35 @@ remain connected-runtime acceptance work.
 The native order-save component regression executes the installed `WC_Order::payment_complete()` and `WC_Abstract_Order::save()` against a declared controlled datastore. It demonstrates the swallowed before-save exception, pending durable order, and literal `true` completion return, and checks that fresh payment save evidence rejects completion. The native customer adoption component executes actual `new WC_Customer(id, true)` and session datastore read/write with a controlled account datastore and empty metadata boundary. It verifies that the new ID rejects old guest addresses, the retained allowlist preserves addresses for the totals probe and final session, and account identity/role/email remain the new account's. These components do not qualify account insertion, HTTP cookie delivery, or the complete native creation journey.
 
 The armed-adoption component executes the real handler private adoption path, the genuine `wc_set_customer_auth_cookie()` caller and armed `init_session_cookie()`, then prepares and verifies a destination JWT. It arranges an already-reserved creation attempt by reflection and uses controlled native auth/user and lifecycle permit/cohort seams, with the actual storage reservation/transfer implementation over the existing recording driver. Success verifies destination claim/header and selected body token; denied consumption, failed lifecycle adoption and signing failure retain pending0 and withhold credentials. This focused regression proves the issuance correction, not native permit/cookie authenticity or installed-cohort acceptance.
+
+## Protected deferred account preparation
+
+The new positive-total branch keeps the captured native order and datastore,
+creation save/ID/customer/UUID fence, and a separate deferred phase. It qualifies
+the exact Settings function at priority 10 with four arguments, passes the
+captured receiver, refuses every result except the exact pending/empty redirect
+array, and executes native `read_meta_data(true)` before checking one positive
+persisted metadata ID for both deferred=yes and the original UUID. Fresh checkout
+metadata full saves have their own role; initial creation evidence cannot prove a
+later save. Full saves during deferral/readback/qualification, including same-ID
+substitute objects and swallowed exceptions, latch failure before throwing.
+
+The 39 paid component cases use actual native WC_Order/WC_Data/WC_Meta_Data and
+the owning Settings function, with controlled hooks, metadata datastore, SQL,
+adoption and cohort handshake. The 17 cohort cases use actual WP_Hook and the
+retained lifecycle with explicit controlled ownership/source classes, checking
+missing/wrong descriptor/arity/order, late writer/getter/read/metadata callbacks,
+and callback reorder before invocation. They do not qualify the native CPT/WP
+metadata persistence chain or installed callbacks. Native CPT and WordPress
+metadata source pins are prerequisites; the future distinct source/callback
+cohort must be reviewed before a connected native paid journey can run.
+
+A protected pending result means prepared deferred checkout. Its destination
+cart is explicitly emptied and flushed, while bounded summary authorization
+survives. After the captured after-checkout hook, the selected free/deferred proof
+is revalidated again by the final HTTP lifecycle before the existing atomic
+session/fence completion. Completion does not attest payment or browser receipt;
+a lost final commit reply or delivery failure can retain complete durable state
+while credentials are withheld. Pending admission/recovery/provider/intent and
+return gates remain separate. The accepted native free fixture and its completed
+cleanup are not changed or replayed by these source controls.

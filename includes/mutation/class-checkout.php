@@ -152,7 +152,7 @@ class Checkout {
 
 				$order_id = Checkout_Mutation::process_checkout( $args, $input, $context, $info, $results );
 
-				$order = \WC_Order_Factory::get_order( $order_id );
+				$order = $handler && $handler->protects_checkout_order() ? $handler->created_checkout_order( $order_id ) : \WC_Order_Factory::get_order( $order_id );
 
 				if ( ! is_object( $order ) ) {
 					throw new UserError( __( 'Failed to retrieve order after checkout', 'wp-graphql-woocommerce' ) );
@@ -168,12 +168,14 @@ class Checkout {
 				 */
 				do_action( 'graphql_woocommerce_after_checkout', $order, $input, $context, $info );
 				if ( $handler && $handler->protects_checkout_order() ) {
-					if ( 'success' !== ( $results['result'] ?? null ) ) { throw new \WPGraphQL\WooCommerce\Utils\Cart_Session_Transition_Error(); }
-					$handler->checkout_free_order_succeeded( $handler->created_checkout_order( $order_id ) );
+					if ( [ 'result' => 'pending', 'redirect' => '' ] === $results ) { $handler->checkout_deferred_order_succeeded( $order ); }
+					elseif ( 'success' === ( $results['result'] ?? null ) ) { $handler->checkout_free_order_succeeded( $order ); }
+					else { $handler->fail_checkout_order(); }
 				}
 
 				return array_merge( [ 'id' => $order_id ], $results );
 			} catch ( \Throwable $e ) {
+				if ( $handler && $handler->protects_checkout_order() ) { $handler->fail_checkout_order(); }
 				if ( $e instanceof \WPGraphQL\WooCommerce\Utils\Cart_Session_Error
 					|| $e instanceof \WPGraphQL\WooCommerce\Utils\Cart_Session_Transition_Error ) {
 					// Preserve typed session classification and any durable order.

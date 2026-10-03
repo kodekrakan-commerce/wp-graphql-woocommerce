@@ -14,6 +14,7 @@ namespace WPGraphQL\WooCommerce\Utils {
 		public $rejected = false;
 		public function has_session_rejection() { return $this->rejected; }
 		public function has_checkout_creation() { return false; }
+		public function protects_checkout_order() { return false; }
 		public function is_cart_operation_callback($hook,$callback,$priority,$args) { return false; }
 		public function reject_cart_operation() { $this->assert_response_available(); $this->rejected = true; }
 		public function has_owned_scope() { return $this->owned; }

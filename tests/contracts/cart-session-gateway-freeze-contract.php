@@ -3,7 +3,7 @@
  * Declared settings/options/handler substitutes; no WP bootstrap/HTTP/SQL/order.
  */
 error_reporting(E_ALL);ini_set('display_errors','0');ini_set('log_errors','0');
-const GATEWAY_FIXTURE_SHA='1c84b1ba4bdc86320102cb56f6761aeee3b9be75c093163d8a2d71b26fb88037';
+const GATEWAY_FIXTURE_SHA='f213e9a0f61a20d7f96eb0264869f7c9b96efc0331c9dbe42e4629994c94a9d2';
 $fixture=__DIR__.'/cart-session-gateway-freeze-fixture.php';
 if(!hash_equals(GATEWAY_FIXTURE_SHA,hash_file('sha256',$fixture))){fwrite(STDERR,"Gateway fixture source differs.\n");exit(2);}
 $failed=[];$receipts=[];
