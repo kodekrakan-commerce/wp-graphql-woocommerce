@@ -11,7 +11,7 @@
  * License: GPL-3
  * License URI: https://www.gnu.org/licenses/gpl-3.0.html
  * Requires at least: 6.1
- * Requires PHP: 7.3
+ * Requires PHP: 8.2
  * WC requires at least: 8.9.0
  * WC tested up to: 9.3.3
  * WPGraphQL requires at least: 1.27.0+

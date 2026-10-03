@@ -128,10 +128,13 @@ class Checkout {
 	 * @return callable
 	 */
 	public static function mutate_and_get_payload() {
-		return static function ( $input, AppContext $context, ResolveInfo $info ) {
+		$entry = static function ( $input, AppContext $context, ResolveInfo $info ) use ( &$entry ) {
 			// Create order.
 			$order = null;
+			$session = \WC()->session;
+			$handler = $session instanceof \WPGraphQL\WooCommerce\Utils\QL_Session_Handler && $session->is_graphql_session() ? $session : null;
 			try {
+				if ( $handler ) { $handler->begin_checkout( $entry, $input, $context, $info ); }
 				$args = Checkout_Mutation::prepare_checkout_args( $input, $context, $info );
 
 				/**
@@ -149,7 +152,7 @@ class Checkout {
 
 				$order_id = Checkout_Mutation::process_checkout( $args, $input, $context, $info, $results );
 
-				$order = \WC_Order_Factory::get_order( $order_id );
+				$order = $handler && $handler->protects_checkout_order() ? $handler->created_checkout_order( $order_id ) : \WC_Order_Factory::get_order( $order_id );
 
 				if ( ! is_object( $order ) ) {
 					throw new UserError( __( 'Failed to retrieve order after checkout', 'wp-graphql-woocommerce' ) );
@@ -164,16 +167,31 @@ class Checkout {
 				 * @param \GraphQL\Type\Definition\ResolveInfo $info    Request ResolveInfo instance.
 				 */
 				do_action( 'graphql_woocommerce_after_checkout', $order, $input, $context, $info );
+				if ( $handler && $handler->protects_checkout_order() ) {
+					if ( [ 'result' => 'pending', 'redirect' => '' ] === $results ) { $handler->checkout_deferred_order_succeeded( $order ); }
+					elseif ( 'success' === ( $results['result'] ?? null ) ) { $handler->checkout_free_order_succeeded( $order ); }
+					else { $handler->fail_checkout_order(); }
+				}
 
 				return array_merge( [ 'id' => $order_id ], $results );
 			} catch ( \Throwable $e ) {
+				if ( $handler && $handler->protects_checkout_order() ) { $handler->fail_checkout_order(); }
+				if ( $e instanceof \WPGraphQL\WooCommerce\Utils\Cart_Session_Error
+					|| $e instanceof \WPGraphQL\WooCommerce\Utils\Cart_Session_Transition_Error ) {
+					// Preserve typed session classification and any durable order.
+					// A late session failure cannot authorize deleting that order.
+					throw $e;
+				}
 				// Delete order if it was created.
-				if ( is_object( $order ) ) {
+				if ( is_object( $order ) && ! ( $handler && $handler->protects_checkout_order() ) ) {
 					Order_Mutation::purge( $order );
 				}
 				// Throw error.
 				throw new UserError( $e->getMessage() );
+			} finally {
+				if ( $handler ) { $handler->end_checkout( $context, $info ); }
 			}//end try
 		};
+		return $entry;
 	}
 }
