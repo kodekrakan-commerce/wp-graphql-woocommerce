@@ -117,6 +117,8 @@ final class Cart_Session_Lifecycle {
 	private $sources;
 	private $receivers = [];
 	private $frozen;
+	private $empty_hooks = [];
+	private $empty_hook_baseline;
 	private $creation_context;
 	private $creation_loaders;
 	private $cookie_capsule;
@@ -156,6 +158,7 @@ final class Cart_Session_Lifecycle {
 		$this->installed = true;
 		foreach ( self::SOURCE_COHORT as $class => $unused ) { $this->qualified_source( $class ); }
 		if ( ! is_array( $this->manifest ) ) { $this->reject(); }
+		$this->collect_empty_hooks();
 		foreach ( self::COHORT_HOOKS as $hook ) {
 			// Core sanitize_meta uses has_filter(subtype) to select subtype over generic.
 			// An owned specific guard would invent a subtype and skip the real generic callback.
@@ -256,9 +259,52 @@ final class Cart_Session_Lifecycle {
 		return false;
 	}
 
+	/** Literal source dependencies are collected even when the declaring callback is absent. */
+	private function collect_empty_hooks(): void {
+		$declared = [];
+		foreach ( $this->manifest as $record ) {
+			if ( ! is_array( $record ) || ! array_key_exists( 'requires_empty_hooks', $record ) ) { continue; }
+			$hooks = $record['requires_empty_hooks'];
+			if ( ! is_array( $hooks ) || ! array_is_list( $hooks ) || [] === $hooks ) { $this->reject(); }
+			$seen = [];
+			foreach ( $hooks as $hook ) {
+				if ( ! is_string( $hook ) || '' === $hook || str_contains( $hook, "\0" ) || 'all' === $hook
+					|| in_array( $hook, $seen, true ) ) { $this->reject(); }
+				$seen[] = $hook;
+				if ( ! in_array( $hook, $declared, true ) ) { $declared[] = $hook; }
+			}
+		}
+		$this->empty_hooks = $declared;
+	}
+
+	/** Keep installation absence/object identity separate from the later ordinary freeze. */
+	private function empty_hook_state(): array {
+		$current = [];
+		foreach ( $this->empty_hooks as $hook ) {
+			$present = array_key_exists( $hook, $GLOBALS['wp_filter'] );
+			$registry = $present ? $GLOBALS['wp_filter'][ $hook ] : null;
+			if ( $present && ( ! $registry instanceof \WP_Hook || \WP_Hook::class !== get_class( $registry )
+				|| [] !== $registry->callbacks ) ) { $this->reject(); }
+			$current[ $hook ] = [ $present, $registry, [] ];
+		}
+		if ( $this->empty_hooks ) {
+			$registry = $GLOBALS['wp_filter']['all'] ?? null;
+			$callback = [ $this, 'guard_sanitizer_dispatch' ];
+			$id = _wp_filter_build_unique_id( 'all', $callback, PHP_INT_MIN );
+			if ( ! $registry instanceof \WP_Hook || \WP_Hook::class !== get_class( $registry )
+				|| [ PHP_INT_MIN => [ $id => [ 'function' => $callback, 'accepted_args' => 1 ] ] ] !== $registry->callbacks ) { $this->reject(); }
+			$current['all'] = [ true, $registry, $registry->callbacks ];
+		}
+		if ( null !== $this->empty_hook_baseline && $this->empty_hook_baseline !== $current ) { $this->reject(); }
+		return $current;
+	}
+
 	/** Watch protected sanitizer families and explicit declarations, including absence. */
 	private function cohort_hooks(): array {
 		$hooks = self::COHORT_HOOKS;
+		foreach ( $this->empty_hooks as $hook ) {
+			if ( ! in_array( $hook, $hooks, true ) ) { $hooks[] = $hook; }
+		}
 		foreach ( $this->manifest as $record ) {
 			$hook = is_array( $record ) ? ( $record['hook'] ?? null ) : null;
 			if ( is_string( $hook ) && str_starts_with( $hook, 'sanitize_post_meta_' ) && ! in_array( $hook, $hooks, true ) ) { $hooks[] = $hook; }
@@ -274,6 +320,7 @@ final class Cart_Session_Lifecycle {
 	/** Compare registry objects AND their ordered callback/priority/argument entries. */
 	private function cohort( bool $freeze ): void {
 		$this->qualified_source( 'WP_Hook' );
+		$empty_state = $this->empty_hook_state();
 		$current = [];
 		foreach ( $this->cohort_hooks() as $hook ) {
 			$registry = $GLOBALS['wp_filter'][ $hook ] ?? null;
@@ -293,6 +340,7 @@ final class Cart_Session_Lifecycle {
 			$current[ $hook ] = [ $registry, $entries ];
 		}
 		if ( null !== $this->frozen && $this->frozen !== $current ) { $this->reject(); }
+		if ( null === $this->empty_hook_baseline ) { $this->empty_hook_baseline = $empty_state; }
 		if ( $freeze ) { $this->frozen = $current; }
 	}
 
@@ -340,8 +388,9 @@ final class Cart_Session_Lifecycle {
 		return $value;
 	}
 
-	/** Native all dispatch precedes sanitizer callbacks without changing has_filter. */
+	/** Native all dispatch checks declared empty dependencies without creating their hooks. */
 	public function guard_sanitizer_dispatch( $hook ): void {
+		if ( is_string( $hook ) && in_array( $hook, $this->empty_hooks, true ) ) { $this->cohort( false ); }
 		if ( is_string( $hook ) && str_starts_with( $hook, 'sanitize_post_meta_' ) ) {
 			$this->cohort( false );
 			if ( ! in_array( $hook, $this->cohort_hooks(), true ) ) {

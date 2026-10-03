@@ -30,7 +30,7 @@ function paid_cohort_generic($value){$GLOBALS['paid_cohort_calls'][]='generic';r
 function paid_cohort_subtype($value){$GLOBALS['paid_cohort_calls'][]='subtype';return 'subtype:'.$value;}
 function cohort_set($o,$k,$v){(new \ReflectionProperty($o,$k))->setValue($o,$v);}
 function cohort_record($hook,$function,$priority=10,$arity=1){return ['hook'=>$hook,'kind'=>'function','function'=>$function,'priority'=>$priority,'accepted_args'=>$arity,'sha256'=>hash_file('sha256',(new ReflectionFunction($function))->getFileName()),'stable_registry'=>true,'nonstreaming'=>true];}
-function cohort_fixture($variant='valid',$sanitizers=[],$absent_sanitizers=[]){
+function cohort_fixture($variant='valid',$sanitizers=[],$absent_sanitizers=[],$install=true){
  $GLOBALS['wp_filter']=[];$GLOBALS['wp_actions']=[];$GLOBALS['wp_current_filter']=[];$GLOBALS['paid_cohort_effect']=0;$GLOBALS['paid_cohort_calls']=[];
  $h=new \WPGraphQL\WooCommerce\Utils\QL_Session_Handler();$GLOBALS['paid_cohort_handler']=$h;$l=new \WPGraphQL\WooCommerce\Utils\Cart_Session_Lifecycle($h,'woocommerce-session',[]);
  $c=new WC_Cart();$cs=new WC_Cart_Session($c);$customer=new WC_Customer();$GLOBALS['paid_cohort_wc']=(object)['session'=>$h,'customer'=>$customer,'cart'=>$c];
@@ -47,13 +47,15 @@ function cohort_fixture($variant='valid',$sanitizers=[],$absent_sanitizers=[]){
  foreach($absent_sanitizers as [$sanitizer,$fn]){$manifest[]=cohort_record($sanitizer,$fn);}
  if($variant==='bad-descriptor'){$manifest[0]['sha256']=str_repeat('0',64);}cohort_set($l,'manifest',$manifest);
  $GLOBALS['paid_cohort_lifecycle']=$l;
- $l->install();
+ if($install){$l->install();}
  return [$l,$h];
 }
 function cohort_expect($ok){if(!$ok){throw new RuntimeException('Cohort assertion failed.');}}
 function cohort_denied($action,$handler){try{$action();}catch(\WPGraphQL\WooCommerce\Utils\Cart_Session_Error $e){cohort_expect($handler->failed&&$GLOBALS['paid_cohort_effect']===0);return;}throw new RuntimeException('Cohort did not reject.');}
 function cohort_setup_denied($action){try{$action();}catch(\WPGraphQL\WooCommerce\Utils\Cart_Session_Error $e){cohort_expect($GLOBALS['paid_cohort_handler']->failed&&$GLOBALS['paid_cohort_effect']===0&&$GLOBALS['paid_cohort_calls']===[]);return;}throw new RuntimeException('Cohort setup did not reject.');}
+if ( defined('WL_PAID_COHORT_BOOTSTRAP_ONLY') && true === WL_PAID_COHORT_BOOTSTRAP_ONLY ) { return; }
 $cases=[];
+$cases['native qualified preinstalled all remains allowed without empty-hook field']=function(){[$l,$h]=cohort_fixture('valid',[['all','paid_cohort_known',true]]);$l->qualify_checkout_deferred_payment();cohort_expect(sanitize_meta('_woonuxt_deferred_payment','raw','post','shop_order')==='raw'&&!$h->failed);};
 $cases['exact reviewed Settings function 10/4 qualifies and revalidates']=function(){[$l,$h]=cohort_fixture();$l->qualify_checkout_deferred_payment();$l->assert_checkout_deferred_cohort();cohort_expect(!$h->failed);};
 foreach(['missing','wrong-arity','wrong-priority','wrong-function','wrong-source','bad-descriptor','extra-before','extra-after','unknown-getter']as $variant){$cases[$variant.' rejected before writer effects']=function()use($variant){cohort_setup_denied(function()use($variant){[$l,$h]=cohort_fixture($variant);$l->qualify_checkout_deferred_payment();});};}
 foreach(['graphql_woocommerce_checkout_payment_result','woocommerce_data_store_wp_post_read_meta','added_order_meta','woocommerce_order_is_paid','woocommerce_order_get__stripe_intent_id','sanitize_post_meta__woonuxt_deferred_payment']as $hook){$cases['late '.$hook.' denied before callback']=function()use($hook){[$l,$h]=cohort_fixture();$l->qualify_checkout_deferred_payment();add_filter($hook,'paid_cohort_unknown',10,1);cohort_denied(fn()=>apply_filters($hook,null),$h);};}
