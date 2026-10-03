@@ -256,15 +256,26 @@ final class Cart_Session_Lifecycle {
 		return false;
 	}
 
+	/** Watch protected sanitizer families and explicit declarations, including absence. */
+	private function cohort_hooks(): array {
+		$hooks = self::COHORT_HOOKS;
+		foreach ( $this->manifest as $record ) {
+			$hook = is_array( $record ) ? ( $record['hook'] ?? null ) : null;
+			if ( is_string( $hook ) && str_starts_with( $hook, 'sanitize_post_meta_' ) && ! in_array( $hook, $hooks, true ) ) { $hooks[] = $hook; }
+		}
+		foreach ( array_keys( $GLOBALS['wp_filter'] ?? [] ) as $hook ) {
+			if ( is_string( $hook ) && ( str_starts_with( $hook, 'sanitize_post_meta__woonuxt_deferred_payment_for_' )
+				|| str_starts_with( $hook, 'sanitize_post_meta__wl_checkout_operation_uuid_for_' )
+				|| str_starts_with( $hook, 'woocommerce_order_get_' ) ) && ! in_array( $hook, $hooks, true ) ) { $hooks[] = $hook; }
+		}
+		return $hooks;
+	}
+
 	/** Compare registry objects AND their ordered callback/priority/argument entries. */
 	private function cohort( bool $freeze ): void {
 		$this->qualified_source( 'WP_Hook' );
 		$current = [];
-		$hooks = self::COHORT_HOOKS;
-		foreach ( array_keys( $GLOBALS['wp_filter'] ?? [] ) as $hook ) {
-			if ( is_string( $hook ) && ( str_starts_with( $hook, 'sanitize_post_meta_' ) || str_starts_with( $hook, 'woocommerce_order_get_' ) ) && ! in_array( $hook, $hooks, true ) ) { $hooks[] = $hook; }
-		}
-		foreach ( $hooks as $hook ) {
+		foreach ( $this->cohort_hooks() as $hook ) {
 			$registry = $GLOBALS['wp_filter'][ $hook ] ?? null;
 			$entries = [];
 			if ( null !== $registry ) {
@@ -333,6 +344,10 @@ final class Cart_Session_Lifecycle {
 	public function guard_sanitizer_dispatch( $hook ): void {
 		if ( is_string( $hook ) && str_starts_with( $hook, 'sanitize_post_meta_' ) ) {
 			$this->cohort( false );
+			if ( ! in_array( $hook, $this->cohort_hooks(), true ) ) {
+				$registry = $GLOBALS['wp_filter'][ $hook ] ?? null;
+				if ( null !== $registry && ( ! $registry instanceof \WP_Hook || \WP_Hook::class !== get_class( $registry ) || $registry->callbacks ) ) { $this->reject(); }
+			}
 		}
 	}
 

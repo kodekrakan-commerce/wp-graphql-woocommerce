@@ -1,6 +1,6 @@
 <?php
 /** Actual retained lifecycle install and native sanitize_meta/plugin.php/WP_Hook controls. Order/customer/
- * metadata source classes and handler ownership are explicit controlled seams;
+ * metadata source classes, handler ownership and the footnotes capability check are explicit controlled seams;
  * actual Settings callback source/descriptor is qualified but not executed. */
 namespace WPGraphQL\WooCommerce\Utils {
  final class QL_Session_Handler {
@@ -17,19 +17,20 @@ namespace WPGraphQL { class Router {} }
 namespace {
 $wp=rtrim(getenv('WL_WORDPRESS_SOURCE')?:'','/');$settings=rtrim(getenv('WL_SETTINGS_SOURCE')?:'','/');$gql=rtrim(getenv('WL_WPGRAPHQL_SOURCE')?:'','/');
 define('ABSPATH',$wp.'/');define('WPINC','wp-includes');
-require $wp.'/wp-includes/plugin.php';require $wp.'/wp-includes/meta.php';require $gql.'/vendor/autoload.php';
+require $wp.'/wp-includes/plugin.php';require $wp.'/wp-includes/meta.php';require $wp.'/wp-includes/blocks.php';require $gql.'/vendor/autoload.php';
 require dirname(__DIR__,2).'/includes/utils/class-cart-session-http-boundary.php';require dirname(__DIR__,2).'/includes/utils/class-cart-session-error.php';require dirname(__DIR__,2).'/includes/utils/class-cart-session-lifecycle.php';
 require $settings.'/includes/deferred-checkout.php';
 class WC_Payment_Gateways{} class WC_Data{} class WC_Meta_Data{} class WC_Data_Store_WP{} class WC_Customer{function get_id(){return 17;}} class WC_Cart{} class WC_Cart_Session{protected $cart;function __construct($cart){$this->cart=$cart;}}
 function wc_get_is_paid_statuses(){}
 function WC(){return $GLOBALS['paid_cohort_wc'];}function get_current_user_id(){return 17;}function __($s,$domain=''){return $s;}
+function current_user_can($capability){return false;}
 function paid_cohort_known($value){return $value;} function paid_cohort_unknown($value){++$GLOBALS['paid_cohort_effect'];return $value;}
 function paid_cohort_second($value){return $value;}
 function paid_cohort_generic($value){$GLOBALS['paid_cohort_calls'][]='generic';return 'generic:'.$value;}
 function paid_cohort_subtype($value){$GLOBALS['paid_cohort_calls'][]='subtype';return 'subtype:'.$value;}
 function cohort_set($o,$k,$v){(new \ReflectionProperty($o,$k))->setValue($o,$v);}
 function cohort_record($hook,$function,$priority=10,$arity=1){return ['hook'=>$hook,'kind'=>'function','function'=>$function,'priority'=>$priority,'accepted_args'=>$arity,'sha256'=>hash_file('sha256',(new ReflectionFunction($function))->getFileName()),'stable_registry'=>true,'nonstreaming'=>true];}
-function cohort_fixture($variant='valid',$sanitizers=[]){
+function cohort_fixture($variant='valid',$sanitizers=[],$absent_sanitizers=[]){
  $GLOBALS['wp_filter']=[];$GLOBALS['wp_actions']=[];$GLOBALS['wp_current_filter']=[];$GLOBALS['paid_cohort_effect']=0;$GLOBALS['paid_cohort_calls']=[];
  $h=new \WPGraphQL\WooCommerce\Utils\QL_Session_Handler();$GLOBALS['paid_cohort_handler']=$h;$l=new \WPGraphQL\WooCommerce\Utils\Cart_Session_Lifecycle($h,'woocommerce-session',[]);
  $c=new WC_Cart();$cs=new WC_Cart_Session($c);$customer=new WC_Customer();$GLOBALS['paid_cohort_wc']=(object)['session'=>$h,'customer'=>$customer,'cart'=>$c];
@@ -43,6 +44,7 @@ function cohort_fixture($variant='valid',$sanitizers=[]){
  if($variant==='unknown-getter'){add_filter('woocommerce_order_get__stripe_intent_id','paid_cohort_unknown',10,1);}
  if($variant==='read-reorder'){foreach(['paid_cohort_known','paid_cohort_second']as $fn){add_filter('woocommerce_data_store_wp_post_read_meta',$fn,10,1);$manifest[]=cohort_record('woocommerce_data_store_wp_post_read_meta',$fn);}}
  foreach($sanitizers as [$sanitizer,$fn,$qualified]){add_filter($sanitizer,$fn,10,1);if($qualified){$manifest[]=cohort_record($sanitizer,$fn);}}
+ foreach($absent_sanitizers as [$sanitizer,$fn]){$manifest[]=cohort_record($sanitizer,$fn);}
  if($variant==='bad-descriptor'){$manifest[0]['sha256']=str_repeat('0',64);}cohort_set($l,'manifest',$manifest);
  $GLOBALS['paid_cohort_lifecycle']=$l;
  $l->install();
@@ -78,12 +80,25 @@ foreach(['_woonuxt_deferred_payment','_wl_checkout_operation_uuid']as $key){
   $cases['native preexisting unknown sanitizer '.$hook]=function()use($hook){cohort_setup_denied(fn()=>cohort_fixture('valid',[[$hook,'paid_cohort_unknown',false]]));};
   $cases['native late unknown sanitizer '.$hook]=function()use($key,$hook){[$l,$h]=cohort_fixture();$l->qualify_checkout_deferred_payment();add_filter($hook,'paid_cohort_unknown',10,1);cohort_denied(fn()=>sanitize_meta($key,'raw','post',str_ends_with($hook,'custom_order')?'custom_order':'shop_order'),$h);};
   $cases['native late declared sanitizer violates freeze '.$hook]=function()use($key,$hook){[$l,$h]=cohort_fixture();$manifest=(new ReflectionProperty($l,'manifest'))->getValue($l);$manifest[]=cohort_record($hook,'paid_cohort_unknown');cohort_set($l,'manifest',$manifest);$l->qualify_checkout_deferred_payment();add_filter($hook,'paid_cohort_unknown',10,1);cohort_denied(fn()=>sanitize_meta($key,'raw','post',str_ends_with($hook,'custom_order')?'custom_order':'shop_order'),$h);};
+  $cases['native identical protected sanitizer replacement violates freeze '.$hook]=function()use($hook){[$l,$h]=cohort_fixture('valid',[[$hook,'paid_cohort_unknown',true]]);$l->qualify_checkout_deferred_payment();$before=$GLOBALS['wp_filter'][$hook];remove_filter($hook,'paid_cohort_unknown',10);add_filter($hook,'paid_cohort_unknown',10,1);cohort_expect($before!==$GLOBALS['wp_filter'][$hook]);cohort_denied(fn()=>$l->assert_checkout_deferred_cohort(),$h);};
  }
  $cases['native global late all denied before effect '.$key]=function()use($key){[$l,$h]=cohort_fixture();$l->qualify_checkout_deferred_payment();add_filter('all','paid_cohort_unknown',PHP_INT_MIN,1);cohort_denied(fn()=>sanitize_meta($key,'raw','post','shop_order'),$h);};
  $cases['native declared late all violates freeze '.$key]=function()use($key){[$l,$h]=cohort_fixture();$manifest=(new ReflectionProperty($l,'manifest'))->getValue($l);$manifest[]=cohort_record('all','paid_cohort_unknown',PHP_INT_MIN,1);cohort_set($l,'manifest',$manifest);$l->qualify_checkout_deferred_payment();add_filter('all','paid_cohort_unknown',PHP_INT_MIN,1);cohort_denied(fn()=>sanitize_meta($key,'raw','post','shop_order'),$h);};
 }
+foreach(['sanitize_post_meta_unrelated','sanitize_post_meta_unrelated_for_custom_order','sanitize_post_meta__woonuxt_deferred_payment_extra','sanitize_post_meta__wl_checkout_operation_uuid_extra']as $hook){
+ $object_subtype=str_ends_with($hook,'_for_custom_order')?'custom_order':'';$key=$object_subtype?substr($hook,19,-17):substr($hook,19);
+ $cases['native unused unrelated unknown sanitizer permits install and freeze '.$hook]=function()use($hook){[$l,$h]=cohort_fixture('valid',[[$hook,'paid_cohort_unknown',false]]);$l->qualify_checkout_deferred_payment();$l->assert_checkout_deferred_cohort();cohort_expect(!$h->failed&&$GLOBALS['paid_cohort_effect']===0);};
+ $cases['native preexisting unrelated unknown sanitizer dispatch denied before effect '.$hook]=function()use($hook,$key,$object_subtype){[$l,$h]=cohort_fixture('valid',[[$hook,'paid_cohort_unknown',false]]);$l->qualify_checkout_deferred_payment();cohort_denied(fn()=>sanitize_meta($key,'raw','post',$object_subtype),$h);};
+ $cases['native late unrelated unknown sanitizer dispatch denied before effect '.$hook]=function()use($hook,$key,$object_subtype){[$l,$h]=cohort_fixture();$l->qualify_checkout_deferred_payment();add_filter($hook,'paid_cohort_unknown',10,1);$l->assert_checkout_deferred_cohort();cohort_denied(fn()=>sanitize_meta($key,'raw','post',$object_subtype),$h);};
+ $cases['native explicitly declared unrelated sanitizer transformed output '.$hook]=function()use($hook,$key,$object_subtype){[$l,$h]=cohort_fixture('valid',[[$hook,'paid_cohort_generic',true]]);$l->qualify_checkout_deferred_payment();cohort_expect(sanitize_meta($key,'raw','post',$object_subtype)==='generic:raw'&&$GLOBALS['paid_cohort_calls']===['generic']&&!$h->failed);};
+ foreach(['replacement','removal']as $drift){$cases['native explicitly declared unrelated sanitizer frozen '.$drift.' '.$hook]=function()use($hook,$drift){[$l,$h]=cohort_fixture('valid',[[$hook,'paid_cohort_unknown',true]]);$l->qualify_checkout_deferred_payment();$before=$GLOBALS['wp_filter'][$hook];remove_filter($hook,'paid_cohort_unknown',10);if($drift==='replacement'){add_filter($hook,'paid_cohort_unknown',10,1);cohort_expect($before!==$GLOBALS['wp_filter'][$hook]);}cohort_denied(fn()=>sanitize_meta('_woonuxt_deferred_payment','raw','post','shop_order'),$h);};}
+ $cases['native explicitly declared unrelated sanitizer freezes absence '.$hook]=function()use($hook){[$l,$h]=cohort_fixture('valid',[],[[$hook,'paid_cohort_unknown']]);$l->qualify_checkout_deferred_payment();$frozen=(new ReflectionProperty($l,'frozen'))->getValue($l);cohort_expect(array_key_exists($hook,$frozen)&&$frozen[$hook]===[null,[]]);add_filter($hook,'paid_cohort_unknown',10,1);cohort_denied(fn()=>sanitize_meta('_woonuxt_deferred_payment','raw','post','shop_order'),$h);};
+}
+$cases['native unrelated absent sanitizer unchanged']=function(){[$l,$h]=cohort_fixture();$l->qualify_checkout_deferred_payment();cohort_expect(sanitize_meta('unrelated','raw','post','custom_order')==='raw'&&$GLOBALS['paid_cohort_calls']===[]&&!$h->failed);};
+$cases['native unused unrelated unknown sanitizer identical replacement allowed']=function(){ $hook='sanitize_post_meta_unrelated';[$l,$h]=cohort_fixture('valid',[[$hook,'paid_cohort_unknown',false]]);$l->qualify_checkout_deferred_payment();$before=$GLOBALS['wp_filter'][$hook];remove_filter($hook,'paid_cohort_unknown',10);add_filter($hook,'paid_cohort_unknown',10,1);cohort_expect($before!==$GLOBALS['wp_filter'][$hook]);$l->assert_checkout_deferred_cohort();cohort_expect(!$h->failed&&$GLOBALS['paid_cohort_effect']===0);};
+$cases['native core footnotes init replaces unused sanitizer registry without cohort drift']=function(){ $hook='sanitize_post_meta_footnotes';[$l,$h]=cohort_fixture('valid',[[$hook,'_wp_filter_post_meta_footnotes',false]]);$l->qualify_checkout_deferred_payment();$before=$GLOBALS['wp_filter'][$hook];_wp_footnotes_kses_init();cohort_expect($before!==$GLOBALS['wp_filter'][$hook]&&has_filter($hook,'_wp_filter_post_meta_footnotes')===10);$l->assert_checkout_deferred_cohort();cohort_expect(sanitize_meta('_woonuxt_deferred_payment','raw','post','shop_order')==='raw'&&!$h->failed);};
 $cases['native unknown preexisting global all rejected at install']=function(){cohort_setup_denied(fn()=>cohort_fixture('valid',[['all','paid_cohort_unknown',false]]));};
 $cases['native exact owned all descriptor rejects arity drift']=function(){[$l,$h]=cohort_fixture();$l->qualify_checkout_deferred_payment();add_filter('all',[$l,'guard_sanitizer_dispatch'],PHP_INT_MIN,2);cohort_denied(fn()=>sanitize_meta('_woonuxt_deferred_payment','raw','post','shop_order'),$h);};
 $failed=[];$total=0;foreach($cases as $name=>$test){if(getenv('WL_SANITIZER_ONLY')&&!str_contains($name,getenv('WL_SANITIZER_ONLY'))){continue;}$total++;$level=ob_get_level();try{$test();}catch(Throwable $e){$failed[]=$name;fwrite(STDERR,'FAIL '.$name.': '.get_class($e).' '.$e->getMessage()."\n");}finally{if(isset($GLOBALS['paid_cohort_lifecycle'])){(new ReflectionProperty($GLOBALS['paid_cohort_lifecycle'],'boundary'))->getValue($GLOBALS['paid_cohort_lifecycle'])->restore();unset($GLOBALS['paid_cohort_lifecycle']);}while(ob_get_level()>$level){ob_end_clean();}}}
-echo json_encode(['suite'=>'paid-checkout-callback-cohort','cases'=>$total,'passed'=>$total-count($failed),'failed'=>$failed,'php'=>PHP_VERSION,'limits'=>'Actual lifecycle install + native sanitize_meta/plugin.php/WP_Hook; ownership/source classes substituted; actual Settings descriptor/source only, no writer/native persistence/HTTP acceptance.'],JSON_THROW_ON_ERROR)."\n";exit($failed?1:0);
+echo json_encode(['suite'=>'paid-checkout-callback-cohort','cases'=>$total,'passed'=>$total-count($failed),'failed'=>$failed,'php'=>PHP_VERSION,'limits'=>'Actual lifecycle install + native sanitize_meta/plugin.php/WP_Hook and core footnotes init; capability/ownership/source classes substituted; actual Settings descriptor/source only, no full auth-cookie transition/writer/native persistence/HTTP acceptance.'],JSON_THROW_ON_ERROR)."\n";exit($failed?1:0);
 }
