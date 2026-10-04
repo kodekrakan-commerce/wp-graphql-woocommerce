@@ -8,9 +8,10 @@
  * --cli-only skips the localhost server; it does not claim HTTP header proof.
  */
 error_reporting( E_ALL ); ini_set( 'display_errors', '0' ); ini_set( 'log_errors', '0' );
-const INTEGRATION_FIXTURE_SHA = 'd688acfa54978cc277f454981b4d75c74d05999474b5f02727f2fa231618d103';
-const INTEGRATION_ADAPTER_SHA = '42a311af53cb4cf7003521923a31d1d30838eb627b2790b38472f78c801e64b0';
-const INTEGRATION_HANDLER_SHA = 'ca4176be3b115927124f254b0ac36f005d30cf9f2e9a8d3e1f04ea411878af80';
+const INTEGRATION_FIXTURE_SHA = 'e6214e8484bb87f009d154e723657719858111af4e0864c1b19c81a21c3ec2ef';
+const INTEGRATION_ADAPTER_SHA = 'cc2ef1ce86d5e3bba0cf3c037530675764e29ca62199c28dca2ce2a48ce8a048';
+const INTEGRATION_LIFECYCLE_SHA = 'd5f2c190f910a8429bd2a3b33f29643708a3407cb192151c6ef0b47a0317d88a';
+const INTEGRATION_HANDLER_SHA = 'a2948b26008924716e89a043bc629b140769384f33046d5b119c7b8afe0b1dae';
 const INTEGRATION_RESULT_SHA = '899f37cf608b43eddba734604ba301e178b02f7bf12edf0b8b920b4053435fd9';
 $owner = dirname( __DIR__, 2 ); $endpoint = __DIR__ . '/cart-session-lifecycle-integration-fixture.php';
 $source_files = [ 'handler' => $owner . '/includes/utils/class-ql-session-handler.php', 'fixture' => $endpoint, 'adapter' => __DIR__ . '/cart-session-owned-handler-fixtures.php' ];
@@ -30,6 +31,8 @@ $source_before = array_map( fn( $file ) => hash_file( 'sha256', $file ), $source
 putenv( 'WL_INTEGRATION_FIXTURE_SHA=' . INTEGRATION_FIXTURE_SHA ); putenv( 'WL_INTEGRATION_ADAPTER_SHA=' . INTEGRATION_ADAPTER_SHA ); putenv( 'WL_INTEGRATION_HANDLER_SHA=' . INTEGRATION_HANDLER_SHA );
 putenv('WL_INTEGRATION_OPERATION_SHA=0a1f6e9b48e46db49032568b1baf5de17e887b508362e446454968dbfe0834a2');
 putenv( 'WL_INTEGRATION_RESULT_SHA=' . INTEGRATION_RESULT_SHA );
+putenv( 'WL_INTEGRATION_LIFECYCLE_SHA=' . INTEGRATION_LIFECYCLE_SHA );
+if ( ! hash_equals( INTEGRATION_LIFECYCLE_SHA, hash_file( 'sha256', $source_files['lifecycle'] ) ) ) { fwrite( STDERR, "Fixed lifecycle source differs.\n" ); exit( 2 ); }
 $total = 0; $failures = 0;
 function integration_expect( $condition ) { if ( ! $condition ) { throw new RuntimeException( 'Sanitized composed integration assertion failed.' ); } }
 function integration_case( $name, callable $action ) {
@@ -55,6 +58,21 @@ function integration_no_flush( $state ) {
 function integration_assert_rejection( $response, $state, $code = 'WL_CART_SESSION_TRANSITION_INVALID' ) {
 	integration_no_flush( $state ); integration_expect( is_array( $response ) && [ 'errors' ] === array_keys( $response ) && ! empty( $response['errors'] ) );
 	foreach ( $response['errors'] as $error ) { integration_expect( $code === ( $error['extensions']['code'] ?? null ) ); }
+}
+foreach ( ['guest','token'] as $credential ) {
+    integration_case( 'actual lifecycle handoff precedes begin for '.$credential, function () use ($credential) {
+        [$response,$state]=integration_child('handoff-success-'.$credential);
+        integration_expect(true===$response['ready'] && null===$response['code']);
+        integration_expect(1===count(array_filter($state['calls'],fn($c)=>$c==='qualify')) && 1===count(array_filter($state['calls'],fn($c)=>$c==='begin')));
+        integration_expect(array_search('qualify',$state['calls'],true)<array_search('begin',$state['calls'],true) && true===$state['terminal']);
+    });
+    foreach ( ['missing','throw'] as $capability ) {
+        integration_case( 'actual lifecycle '.$capability.' capability cannot begin for '.$credential, function () use ($capability,$credential) {
+            [$response,$state]=integration_child('handoff-'.$capability.'-'.$credential);
+            integration_expect(false===$response['ready'] && 'WL_CART_SESSION_UNAVAILABLE'===$response['code'] && true===$state['terminal']);
+            integration_expect(!in_array('begin',$state['calls'],true) && 0===$state['session_reads'] && 0===$state['marker_reads'] && 0===$state['writes']);
+        });
+    }
 }
 integration_case( 'ordinary composed success exercises actual prepared token, flush, SQL boundary, seal and release', function () {
 	[ $response, $state ] = integration_child( 'ordinary-success' );

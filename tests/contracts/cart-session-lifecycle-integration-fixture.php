@@ -128,10 +128,15 @@ namespace {
 		'WPGraphQL\\Router' => getenv( 'WL_INTEGRATION_ADAPTER_SHA' ),
 		'WC_Customer' => $fixture_hash, 'WC_Cart' => $fixture_hash, 'WC_Cart_Session' => $fixture_hash, 'WC_Payment_Gateways' => $fixture_hash,
 		QL_Session_Handler::class => getenv( 'WL_INTEGRATION_HANDLER_SHA' ),
+		\WPGraphQL\WooCommerce\Utils\Cart_Session_Lifecycle::class => getenv( 'WL_INTEGRATION_LIFECYCLE_SHA' ),
 		\WPGraphQL\WooCommerce\Utils\Cart_Session_Operation::class => getenv( 'WL_INTEGRATION_OPERATION_SHA' ),
 		\GraphQL\Executor\ExecutionResult::class => 'native-rejection-source' === $case ? str_repeat( '0', 64 ) : getenv( 'WL_INTEGRATION_RESULT_SHA' ),
 	] );
 	define( 'WOOGRAPHQL_CART_SESSION_CALLBACK_COHORT', [[ 'hook'=>'graphql_mutation_input','kind'=>'function','function'=>'integration_trusted_input','priority'=>10,'accepted_args'=>4,'stable_registry'=>true,'nonstreaming'=>true,'sha256'=>$fixture_hash ]] );
+	$handoff_case = str_starts_with( $case, 'handoff-' );
+	if ( $handoff_case && str_ends_with( $case, '-guest' ) ) { unset( $_SERVER['HTTP_WOOCOMMERCE_SESSION'] ); }
+	if ( $handoff_case && str_contains( $case, '-throw-' ) ) { $db->throw_qualification = true; }
+	if ( $handoff_case && str_contains( $case, '-missing-' ) ) { $GLOBALS['wpdb'] = $db = new HandlerContractMissingQualificationDatabase(); }
 	$handler = new QL_Session_Handler(); WC()->session = $handler;
 	register_shutdown_function( static function () use ( $ledger, $handler, $db, $id, $original_row, $original_markers ) {
 		do_action( 'shutdown' );
@@ -151,6 +156,14 @@ namespace {
 			'cookie_token_policy' => $GLOBALS['integration_cookie_token_policy'] ?? null ];
 		file_put_contents( $ledger, json_encode( $state ), LOCK_EX ); chmod( $ledger, 0600 );
 	} );
+	if ( $handoff_case ) {
+		$handler->init(); $ready = false; $code = null;
+		try { $handler->assert_session_ready(); $ready = true; }
+		catch ( \WPGraphQL\WooCommerce\Utils\Cart_Session_Error $error ) { $code = $error->getExtensions()['code']; }
+		$handler->get_owned_lifecycle()->cleanup();
+		while ( ob_get_level() ) { ob_end_clean(); } restore_exception_handler();
+		echo json_encode( [ 'ready'=>$ready, 'code'=>$code ] ); exit;
+	}
 	$handler->init(); if ( ! $marker_case ) { $handler->assert_session_ready(); }
 	WC()->customer = new WC_Customer(); $cart = new WC_Cart(); WC()->cart = $cart;
 	$handler->set( 'cart', 'synthetic-pending-cart' );

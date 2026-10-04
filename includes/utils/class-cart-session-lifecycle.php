@@ -9,7 +9,7 @@ namespace WPGraphQL\WooCommerce\Utils;
 final class Cart_Session_Lifecycle {
 
 	private const SOURCE_COHORT = [
-		'WPGraphQL\\WooCommerce\\Utils\\QL_Session_Handler' => 'ca4176be3b115927124f254b0ac36f005d30cf9f2e9a8d3e1f04ea411878af80',
+		'WPGraphQL\\WooCommerce\\Utils\\QL_Session_Handler' => 'a2948b26008924716e89a043bc629b140769384f33046d5b119c7b8afe0b1dae',
 		'WP_Hook' => 'b839c0e5672246bca8db1ab781ec8835f7732f253c375a237cbf6ec536e8d12e',
 		'WPGraphQL\\Router' => '4c85426fdc7223c69358ed70e68ba45e4c5f632a4234f860ebba41d68ec32ea7',
 		'WC_Customer' => '14ca0da46d63445e72053cba79fad368393490e7bf416e53936eeb17c579a452',
@@ -183,6 +183,30 @@ final class Cart_Session_Lifecycle {
 		$this->arm_terminals();
 		add_action( 'shutdown', [ $this, 'abort_at_shutdown' ], PHP_INT_MIN, 0 );
 		$this->cohort( false );
+	}
+
+	/** Version-1 storage drivers also need this explicit callback capability here. */
+	public function qualify_owned_storage_driver( $driver ): void {
+		try {
+			if ( ! $this->installed || $this->terminal || null === $this->empty_hook_baseline ) { $this->reject(); }
+			// Retain installation absence/object identity without freezing ordinary hooks.
+			$this->cohort( false );
+			$callback = [ $this, 'guard_sanitizer_dispatch' ];
+			$id = _wp_filter_build_unique_id( 'all', $callback, PHP_INT_MIN );
+			$registry = $GLOBALS['wp_filter']['all'] ?? null;
+			if ( ! $registry instanceof \WP_Hook || \WP_Hook::class !== get_class( $registry )
+				|| ( $registry->callbacks[ PHP_INT_MIN ][ $id ] ?? null ) !== [ 'function' => $callback, 'accepted_args' => 1 ] ) { $this->reject(); }
+			// The expected self pin is external; no self checksum belongs in SOURCE_COHORT.
+			$this->qualified_source( self::class );
+			$expected = $this->sources[ self::class ];
+			if ( ( $GLOBALS['wpdb'] ?? null ) !== $driver || ! $driver instanceof \WLCommerce\Database\Owned_Scope_Driver
+				|| 1 !== $driver::CAPABILITY_VERSION || ! method_exists( $driver, 'qualify_stable_callback' )
+				|| ! is_callable( [ $driver, 'qualify_stable_callback' ] ) ) { $this->reject(); }
+			$method = new \ReflectionMethod( $driver, 'qualify_stable_callback' );
+			if ( ! $method->isPublic() || $method->isStatic() ) { $this->reject(); }
+			$driver->qualify_stable_callback( 'all', $callback, $expected );
+			if ( ( $GLOBALS['wpdb'] ?? null ) !== $driver ) { $this->reject(); }
+		} catch ( \Throwable $error ) { $this->reject(); }
 	}
 
 	/** Reappend only owned terminals before dispatch, then bind the ordered cohort. */

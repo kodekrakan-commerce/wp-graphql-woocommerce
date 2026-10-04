@@ -912,6 +912,7 @@ class QL_Session_Handler extends WC_Session_Handler {
 			throw new Cart_Session_Error( Cart_Session_Error::UNAVAILABLE );
 		}
 		$driver = $GLOBALS['wpdb'] ?? null;
+		$this->owned_lifecycle->qualify_owned_storage_driver( $driver );
 		$this->owned_storage = new Cart_Session_Storage( $this->admitted_customer_id, $this->_table, $this->admitted_user_id );
 		$this->owned_storage->acquire( 5 );
 		if ( 0 === $this->admitted_user_id ) {

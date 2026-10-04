@@ -13,6 +13,7 @@ namespace WPGraphQL\WooCommerce\Utils {
 		private $customer;
 		public function __construct( $handler, string $header, array $cookies ) { \HandlerContractBoundary::event( 'lifecycle-construct' ); }
 		public function install(): void { \HandlerContractBoundary::event( 'lifecycle-install' ); }
+		public function qualify_owned_storage_driver( $driver ): void { \HandlerContractBoundary::event( 'lifecycle-handoff' ); }
 		/** Controlled stand-in for the separately qualified cart/customer capture. */
 		public function capture_customer( $customer ): void { $this->customer = $customer; }
 		public function close_writers(): void {
@@ -80,7 +81,12 @@ namespace {
 			HandlerContractBoundary::event( 'db-read', $id ); return isset( HandlerContractBoundary::$rows[$id] ) ? serialize( HandlerContractBoundary::$rows[$id] ) : null;
 		}
 		public function get_row( $key ) {
-			$this->before_sql(); $prepared = $this->queries[$key]; $id = (int) $prepared[1][1]; HandlerContractBoundary::event( 'account-read', $id );
+			$this->before_sql(); $prepared = $this->queries[$key];
+			if ( 'SELECT option_value, autoload FROM %i WHERE option_name = %s' === $prepared[0] ) {
+				if ( $prepared[1][0] !== $this->options || ! preg_match( '/\Awl_checkout_order_v1_[a-f0-9]{64}\z/D', $prepared[1][1] ) ) { throw new RuntimeException( 'Unexpected controlled checkout fence read.' ); }
+				HandlerContractBoundary::event( 'marker-read' ); return null;
+			}
+			$id = (int) $prepared[1][1]; HandlerContractBoundary::event( 'account-read', $id );
 			return (object) [ 'ID' => $id, 'user_login' => 'synthetic-account', 'user_email' => 'synthetic@example.invalid', 'user_nicename' => 'synthetic-account' ];
 		}
 		public function query( $key ) {

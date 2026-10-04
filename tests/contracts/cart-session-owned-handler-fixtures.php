@@ -14,6 +14,15 @@ namespace WPGraphQL\WooCommerce\Utils {
         public bool $terminal = false;
         public function __construct($handler, string $header, array $cookies) { \HandlerContractBoundary::event('lifecycle-construct'); }
         public function install(): void { \HandlerContractBoundary::event('lifecycle-install'); }
+        public function guard_sanitizer_dispatch($hook): void {}
+        /** Recording storage handoff; the actual lifecycle/driver run separately. */
+        public function qualify_owned_storage_driver($driver): void {
+            \HandlerContractBoundary::event('lifecycle-handoff');
+            try {
+                if (($GLOBALS['wpdb'] ?? null) !== $driver || !$driver instanceof \WLCommerce\Database\Owned_Scope_Driver || !is_callable([$driver,'qualify_stable_callback'])) { throw new \RuntimeException('Controlled capability unavailable.'); }
+                $driver->qualify_stable_callback('all',[$this,'guard_sanitizer_dispatch'],'controlled-lifecycle-boundary');
+            } catch (\Throwable $error) { throw new Cart_Session_Error(Cart_Session_Error::UNAVAILABLE); }
+        }
         public function close_writers(): void { \HandlerContractBoundary::event('writers-close'); }
         public function is_terminal(): bool { return $this->terminal; }
     }
@@ -44,8 +53,13 @@ namespace {
 	final class HandlerContractDatabase implements \WLCommerce\Database\Owned_Scope_Driver {
         public string $prefix = 'contract_'; public string $users = 'contract_users'; public string $options = 'contract_options'; public string $last_error = '';
         public array $marker_reads = []; public ?string $marker_failure = null; public bool $marker_last_error = false; public bool $marker_post_failure = false;
-        public $timeout; public $state = 'inactive'; public $failed = false; public $handle; public $write_result = 1;
+        public bool $throw_qualification = false; public $timeout; public $state = 'inactive'; public $failed = false; public $handle; public $write_result = 1;
         public $repopulate_on_write = false; public $report_failed = false; public $report_failed_after_release = false; public $throw_begin = false; public $throw_seal = false; public $throw_release = false; public array $queries = []; public array $calls = []; public int $reads = 0; public int $writes = 0;
+        /** Only records the declared adapter boundary; no real-driver grant. */
+        public function qualify_stable_callback(string $hook, callable $callback, string $expected): void {
+            $this->calls[]='qualify'; HandlerContractBoundary::event('callback-qualify');
+            if ($hook !== 'all' || $callback[1] !== 'guard_sanitizer_dispatch' || $this->throw_qualification) { throw new RuntimeException('Controlled qualification failure.'); }
+        }
         public function begin_owned_scope(array $locks, int $timeout): object { $this->calls[]='begin'; $this->timeout=$timeout; if($this->throw_begin){throw new RuntimeException('Synthetic acquisition failure.');} HandlerContractBoundary::event('scope-begin'); $this->handle=new stdClass(); $this->state='active'; return $this->handle; }
         public function assert_owned(object $handle): void { $this->calls[]='assert'; if ($handle!==$this->handle || $this->failed || !in_array($this->state,['active','sealed'],true)) { throw new RuntimeException('Synthetic ownership unavailable.'); } }
         public function seal_owned_scope(object $handle): void { $this->assert_owned($handle); $this->calls[]='seal'; if($this->throw_seal){throw new RuntimeException('Synthetic seal failure.');} HandlerContractBoundary::event('scope-seal'); $this->state='sealed'; }
@@ -66,6 +80,18 @@ namespace {
         }
         public function get_row($key) { $q=$this->queries[$key] ?? null; if ($q && 'SELECT option_value, autoload FROM %i WHERE option_name = %s' === $q[0]) { $id=$q[1][1]; $this->marker_reads[]=$id; HandlerContractBoundary::event('marker-read', $id); if ($this->marker_failure === $id) { throw new RuntimeException('Synthetic marker failure.'); } if ($this->marker_last_error) { $this->last_error='Synthetic marker uncertainty.'; } if ($this->marker_post_failure) { $this->failed=true; } $value=HandlerContractBoundary::$markers[$id] ?? null; return null === $value ? null : (object)['option_value'=>$value,'autoload'=>'no']; } $this->reads++; HandlerContractBoundary::event('account-read'); return (object)['ID'=>17,'user_login'=>'synthetic','user_email'=>'synthetic@example.invalid','user_nicename'=>'synthetic']; }
         public function query($key) { $this->writes++; if($this->repopulate_on_write) { HandlerContractBoundary::$cache[WC_SESSION_CACHE_GROUP . ':wc_cache_fixed-prefix_' . str_repeat('a',32)]=['cart'=>'stale']; } $q=$this->queries[$key]; $kind=str_starts_with(trim($q[0]),'INSERT')?'db-write':(str_starts_with(trim($q[0]),'DELETE')?'db-delete':'timestamp-write'); HandlerContractBoundary::event($kind); if(false!==$this->write_result && 'db-write'===$kind) { HandlerContractBoundary::$rows[(string)$q[1][1]]=unserialize($q[1][2],['allowed_classes'=>false]); } return $this->write_result; }
+    }
+
+    /** Existing version-1 protocol without the optional qualification capability. */
+    final class HandlerContractMissingQualificationDatabase implements \WLCommerce\Database\Owned_Scope_Driver {
+        public string $prefix='contract_'; public string $options='contract_options';
+        public array $calls=[]; public array $marker_reads=[]; public int $reads=0; public int $writes=0;
+        public function begin_owned_scope(array $locks,int $timeout): object { $this->calls[]='begin'; HandlerContractBoundary::event('scope-begin'); throw new RuntimeException('Missing capability must reject before begin.'); }
+        public function assert_owned(object $handle): void {}
+        public function seal_owned_scope(object $handle): void {}
+        public function release_owned_scope(object $handle): void {}
+        public function abort_owned_scope(object $handle): void {}
+        public function get_failure_state(object $handle): array { return ['state'=>'inactive','failed'=>false]; }
     }
 
 	final class WP_Error {

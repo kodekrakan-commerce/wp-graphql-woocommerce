@@ -74,6 +74,24 @@ function owned_inert( $handler ): void {
 }
 if ( defined( 'WL_NATIVE_SAVE_BOOTSTRAP_ONLY' ) && true === WL_NATIVE_SAVE_BOOTSTRAP_ONLY ) { return; }
 $cases = [];
+foreach ( ['valid', 'absent'] as $credential ) {
+    $cases['storage handoff before begin for '.$credential.' guest credential'] = function () use ($credential) {
+        [$h,$db]=owned_fixture(0,$credential); $h->init(); $h->assert_session_ready();
+        $events=array_column(HandlerContractBoundary::$events,'kind');
+        owned_expect(1===owned_count('lifecycle-handoff') && 1===owned_count('callback-qualify') && 1===owned_count('scope-begin'));
+        owned_expect(array_search('lifecycle-handoff',$events,true)<array_search('callback-qualify',$events,true) && array_search('callback-qualify',$events,true)<array_search('scope-begin',$events,true));
+        $h->discard_owned_scope();
+    };
+    $cases['version-1 missing qualification before begin for '.$credential.' guest credential'] = function () use ($credential) {
+        [$h]=owned_fixture(0,$credential); $GLOBALS['wpdb']=$db=new HandlerContractMissingQualificationDatabase();
+        $h->init(); owned_error(fn()=>$h->assert_session_ready());
+        owned_expect([]===$db->calls && 0===owned_count('scope-begin') && 0===$db->reads && 0===$db->writes && []===$db->marker_reads);
+    };
+    $cases['throwing callback capability before begin for '.$credential.' guest credential'] = function () use ($credential) {
+        [$h,$db]=owned_fixture(0,$credential); $db->throw_qualification=true; $h->init(); owned_error(fn()=>$h->assert_session_ready());
+        owned_expect(['qualify']===$db->calls && 0===$db->reads && 0===$db->writes && []===$db->marker_reads && 0===owned_count('scope-begin'));
+    };
+}
 $cases['lifecycle installs before key filter acquire and authoritative read'] = function () {
 	[ $h, $db ] = owned_start(); $events=array_column(HandlerContractBoundary::$events,'kind');
 	owned_expect( array_search('lifecycle-install',$events,true) < array_search('filter:graphql_woocommerce_secret_key',$events,true) && array_search('scope-begin',$events,true) < array_search('db-read',$events,true) );

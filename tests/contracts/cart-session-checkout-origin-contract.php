@@ -8,7 +8,8 @@ error_reporting(E_ALL); ini_set('display_errors','0'); ini_set('log_errors','0')
 $owner=dirname(__DIR__,2);$fixture=__DIR__.'/cart-session-checkout-origin-fixtures.php';
 // SOURCE_PINS_BEGIN
 const ORIGIN_PINS = [
- 'WPGraphQL\\WooCommerce\\Utils\\QL_Session_Handler'=>'ca4176be3b115927124f254b0ac36f005d30cf9f2e9a8d3e1f04ea411878af80',
+ 'WPGraphQL\\WooCommerce\\Utils\\Cart_Session_Lifecycle'=>'d5f2c190f910a8429bd2a3b33f29643708a3407cb192151c6ef0b47a0317d88a',
+ 'WPGraphQL\\WooCommerce\\Utils\\QL_Session_Handler'=>'a2948b26008924716e89a043bc629b140769384f33046d5b119c7b8afe0b1dae',
  'WPGraphQL\\WooCommerce\\Utils\\Cart_Session_Operation'=>'0a1f6e9b48e46db49032568b1baf5de17e887b508362e446454968dbfe0834a2',
  'WPGraphQL\\WooCommerce\\Mutation\\Checkout'=>'013c4c0aa8bf172fa80f05d5b512e7f8a74b1a51ac2abbb4f8d44bdd601ac8ef',
  'WPGraphQL\\WooCommerce\\Data\\Mutation\\Checkout_Mutation'=>'920c0de6b40db4a1b543750ce839e2896b69360934b0b1714d68519eac2c1af7',
@@ -16,7 +17,7 @@ const ORIGIN_PINS = [
  'WPGraphQL\\Type\\WPMutationType'=>'33bfcaeec264a56c94367a9d49dfa61d1e9f21d24acfe903adca9fc4295207e7',
  'WPGraphQL\\Utils\\InstrumentSchema'=>'6f3bf9d2bd1b49798a0adc22aa843b8f5b74e89f73ebcb91916ea12957ba529c',
  'WP_Hook'=>'b839c0e5672246bca8db1ab781ec8835f7732f253c375a237cbf6ec536e8d12e',
- 'WPGraphQL\\Router'=>'42a311af53cb4cf7003521923a31d1d30838eb627b2790b38472f78c801e64b0',
+ 'WPGraphQL\\Router'=>'cc2ef1ce86d5e3bba0cf3c037530675764e29ca62199c28dca2ce2a48ce8a048',
  'WC_Customer'=>'4e1334926e8601dde64e7b875b6098a148ed75f806faec572b9f7ea1f486d0f7',
  'WC_Cart'=>'4e1334926e8601dde64e7b875b6098a148ed75f806faec572b9f7ea1f486d0f7',
  'WC_Cart_Session'=>'4e1334926e8601dde64e7b875b6098a148ed75f806faec572b9f7ea1f486d0f7',
@@ -25,6 +26,7 @@ const ORIGIN_PINS = [
 // SOURCE_PINS_END
 $wp=rtrim(getenv('WL_WORDPRESS_SOURCE')?:'','/');$gql=rtrim(getenv('WL_WPGRAPHQL_SOURCE')?:'','/');
 $paths=[
+ 'WPGraphQL\\WooCommerce\\Utils\\Cart_Session_Lifecycle'=>$owner.'/includes/utils/class-cart-session-lifecycle.php',
  'WPGraphQL\\WooCommerce\\Utils\\QL_Session_Handler'=>$owner.'/includes/utils/class-ql-session-handler.php',
  'WPGraphQL\\WooCommerce\\Utils\\Cart_Session_Operation'=>$owner.'/includes/utils/class-cart-session-operation.php',
  'WPGraphQL\\WooCommerce\\Mutation\\Checkout'=>$owner.'/includes/mutation/class-checkout.php',
