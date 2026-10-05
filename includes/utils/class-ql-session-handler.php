@@ -1147,6 +1147,28 @@ class QL_Session_Handler extends WC_Session_Handler {
 			|| 0 !== $order->get_id() || $this->admitted_user_id !== (int) $order->get_customer_id( 'edit' ) ) { $this->fail_checkout_order(); }
 		$order->add_meta_data( '_wl_checkout_operation_uuid', $this->checkout_attempt->uuid, true );
 		$this->checkout_attempt->order = $order; $this->checkout_attempt->store = $order->get_data_store();
+		// Fresh native CPT creation persists its pending default without populating
+		// the captured object's raw status. Materialize only that exact unpaid
+		// Stripe case before WC_Checkout's first save; deferred checks stay strict.
+		$total = $order->get_total( 'edit' ); $currency = $order->get_currency( 'edit' );
+		if ( '' === $order->get_status( 'edit' ) && 'stripe' === $order->get_payment_method( 'edit' )
+			&& is_finite( (float) $total ) && (float) $total > 0 ) {
+			try {
+				$this->owned_lifecycle->qualify_checkout_pending_status();
+				if ( $order->is_paid() || $order->get_date_paid( 'edit' ) || '' !== $order->get_transaction_id( 'edit' )
+					|| $order->get_meta( '_stripe_source_id', true, 'edit' ) || $order->get_meta( '_stripe_intent_id', true, 'edit' )
+					|| 'pending' !== apply_filters( 'woocommerce_default_order_status', 'pending' ) ) { $this->fail_checkout_order(); }
+				$transition = $order->set_status( 'pending' );
+				$this->owned_lifecycle->assert_checkout_pending_status_cohort();
+				if ( [ 'from' => 'pending', 'to' => 'pending' ] !== $transition || 'pending' !== $order->get_status( 'edit' )
+					|| 0 !== $order->get_id() || $this->checkout_attempt->store !== $order->get_data_store()
+					|| $this->admitted_user_id !== (int) $order->get_customer_id( 'edit' ) || 'stripe' !== $order->get_payment_method( 'edit' )
+					|| $total !== $order->get_total( 'edit' ) || $currency !== $order->get_currency( 'edit' )
+					|| $order->is_paid() || $order->get_date_paid( 'edit' ) || '' !== $order->get_transaction_id( 'edit' )
+					|| $order->get_meta( '_stripe_source_id', true, 'edit' ) || $order->get_meta( '_stripe_intent_id', true, 'edit' )
+					|| $this->checkout_attempt->uuid !== $order->get_meta( '_wl_checkout_operation_uuid', true, 'edit' ) ) { $this->fail_checkout_order(); }
+			} catch ( \Throwable $error ) { $this->fail_checkout_order( $error ); }
+		}
 	}
 
 	public function bind_checkout_order( $id, $order ): void {

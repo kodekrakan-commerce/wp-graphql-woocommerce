@@ -5,6 +5,30 @@ the candidate, configure a signing secret, activate a database drop-in, or prove
 production compatibility. Keep the retained package metadata and vendor bundle;
 do not run Composer to recreate this release-asset checkout.
 
+The focused fresh-order regression is `cart-session-native-pending-contract.php`.
+It uses the genuine `new WC_Order()` constructor, native getters/setters/save,
+the native datastore wrapper and inherited CPT creation/post-status code. Its
+unmodified control proves that CPT creation can persist `wc-pending` while raw
+edit status remains empty. The protected positive Stripe control materializes
+canonical pending before the sole native save, retains strict deferred checks,
+and observes no status transition, paid field or order note. SQL, metadata,
+cache, source/cohort qualification and the account fence are recording seams;
+this is not native database, checkout HTTP, email or provider acceptance.
+`cart-session-pending-cohort-contract.php` separately exercises the actual
+lifecycle with native WP_Hook/plugin.php: it rejects other non-owner callbacks
+on the three status hooks, changed registry objects/arity, and missing
+source pins. These tests use the same source environment inputs below; the cohort
+test also requires `WL_SETTINGS_SOURCE` and `WL_WOOCOMMERCE_SOURCE`. The only
+permitted non-owner status callback is the positively observed native
+`DraftOrders::register_draft_order_status` at priority 10 with one argument.
+Its exact class, declaring class, method and source digest are checked in addition
+to the existing explicit manifest, receiver binding and frozen registry. The
+pinned callback only appends `wc-checkout-draft`; all pending/status entries stay
+unchanged. Its other methods, subclasses and unrelated status filters receive
+no permission. Native callback tests invoke only that method on a receiver
+constructed without its package initializer; no hook installation, scheduler,
+cleanup or service behavior is exercised.
+
 Use PHP 8.2 with the reviewed source trees available locally:
 
 ```sh

@@ -7,9 +7,10 @@
 namespace WPGraphQL\WooCommerce\Utils;
 
 final class Cart_Session_Lifecycle {
+	private const PENDING_DRAFT_STATUS_SOURCE = '2d8b83747317a7f51011cb80ef597f3b8d89cc2030c5691767aad5ac3ad78b3e';
 
 	private const SOURCE_COHORT = [
-		'WPGraphQL\\WooCommerce\\Utils\\QL_Session_Handler' => '58ff308854cede126ec5298e8500927eb3c407a3414015ad1027b2aa64854613',
+		'WPGraphQL\\WooCommerce\\Utils\\QL_Session_Handler' => '4ec0f1fc73d01e0df1aa5d76390ceae5c597677bec2fe4343f9705c27db312fc',
 		'WP_Hook' => 'b839c0e5672246bca8db1ab781ec8835f7732f253c375a237cbf6ec536e8d12e',
 		'WPGraphQL\\Router' => '4c85426fdc7223c69358ed70e68ba45e4c5f632a4234f860ebba41d68ec32ea7',
 		'WC_Customer' => '14ca0da46d63445e72053cba79fad368393490e7bf416e53936eeb17c579a452',
@@ -45,6 +46,8 @@ final class Cart_Session_Lifecycle {
 		'WC_Abstract_Order' => '59a07e58b30a198491977da76cbff3c01f497fc09f5fdac818c6806fdc3b2ff6',
 		'WC_Data_Store' => 'e7b9c236bb0d879c5388ba7bfe0ff0afb7775c085422d33e6206481a32178f43',
 		'WC_Order_Data_Store_CPT' => '1f1b0e4523c53a13c0b04be74300f76e8c79180d5d23fc123ddbaf95ed180192',
+		'Abstract_WC_Order_Data_Store_CPT' => '24ef4dc8f6234360f9a1d06b2f6b5adbd4dfdf1e12b0a987ab19fc8a2840e662',
+		'function:wc_get_order_statuses' => '4b1132af35887f07a18c99520325323bd2eeca16f135b5d8cb6780f9124ad2dd',
 	];
 	private const DEFERRED_SOURCE_COHORT = [
 		'function:wc_get_is_paid_statuses' => '4b1132af35887f07a18c99520325323bd2eeca16f135b5d8cb6780f9124ad2dd',
@@ -94,6 +97,7 @@ final class Cart_Session_Lifecycle {
 		'graphql_woocommerce_before_checkout_meta_save', 'graphql_woocommerce_checkout_payment_result',
 		'woocommerce_order_is_paid', 'woocommerce_order_needs_payment', 'woocommerce_valid_order_statuses_for_payment', 'woocommerce_order_is_paid_statuses',
 		'woocommerce_order_get_payment_method', 'woocommerce_order_get_status', 'woocommerce_order_get_transaction_id',
+		'woocommerce_default_order_status', 'wc_order_statuses',
 		'woocommerce_order_get_total', 'woocommerce_order_get_currency', 'woocommerce_order_get_customer_id', 'woocommerce_order_get_order_key',
 		'woocommerce_order_get__woonuxt_deferred_payment', 'woocommerce_order_get__stripe_source_id', 'woocommerce_order_get__stripe_intent_id',
 		'added_order_meta', 'updated_order_meta', 'deleted_order_meta', 'woocommerce_data_store_wp_post_read_meta',
@@ -476,7 +480,7 @@ final class Cart_Session_Lifecycle {
 		if ( null !== $this->creation_context || ! function_exists( 'is_multisite' ) || is_multisite() ) { $this->reject(); }
 		foreach ( [ 'wc_create_new_customer', 'wp_insert_user', 'wc_set_customer_auth_cookie', 'wp_set_current_user',
 			'wp_set_auth_cookie', 'wp_generate_auth_cookie', 'wp_validate_auth_cookie' ] as $function ) { $this->qualified_source( 'function:' . $function ); }
-		foreach ( [ 'WP_User', 'WP_Session_Tokens', 'WP_User_Meta_Session_Tokens', 'WC_Checkout', 'WC_Order', 'WC_Abstract_Order', 'WC_Data_Store', 'WC_Order_Data_Store_CPT', 'WC_Data', 'WC_Meta_Data', 'WC_Data_Store_WP', 'function:add_metadata', 'function:update_metadata_by_mid', 'function:delete_metadata_by_mid' ] as $class ) { $this->qualified_source( $class ); }
+		foreach ( [ 'WP_User', 'WP_Session_Tokens', 'WP_User_Meta_Session_Tokens', 'WC_Checkout', 'WC_Order', 'WC_Abstract_Order', 'WC_Data_Store', 'WC_Order_Data_Store_CPT', 'Abstract_WC_Order_Data_Store_CPT', 'function:wc_get_order_statuses', 'WC_Data', 'WC_Meta_Data', 'WC_Data_Store_WP', 'function:add_metadata', 'function:update_metadata_by_mid', 'function:delete_metadata_by_mid' ] as $class ) { $this->qualified_source( $class ); }
 		$this->creation_loaders = $this->checked_checkout_loaders( $context ); $this->creation_context = $context;
 	}
 
@@ -599,6 +603,39 @@ final class Cart_Session_Lifecycle {
 	}
 	public function checkout_order_saved( $order, $store ): void {
 		$this->require_tail( 'woocommerce_after_order_object_save', 'checkout_order_saved' ); $this->handler->checkout_order_saved( $order, $store );
+	}
+	/** Canonical pending plus the exact native append-only DraftOrders callback.
+	 * Its explicit installation record and frozen receiver remain mandatory. */
+	public function qualify_checkout_pending_status(): void {
+		$this->assert_objects(); $this->cohort( false );
+		foreach ( [ 'WC_Order', 'WC_Abstract_Order', 'WC_Data', 'WC_Data_Store', 'WC_Order_Data_Store_CPT',
+			'Abstract_WC_Order_Data_Store_CPT', 'function:wc_get_order_statuses' ] as $class ) { $this->qualified_source( $class ); }
+		$draft_callbacks = 0;
+		foreach ( [ 'woocommerce_default_order_status', 'wc_order_statuses', 'woocommerce_order_get_status' ] as $hook ) {
+			$registry = $GLOBALS['wp_filter'][ $hook ] ?? null;
+			if ( $registry instanceof \WP_Hook ) {
+				foreach ( $registry->callbacks as $priority => $callbacks ) {
+					foreach ( $callbacks as $entry ) {
+						$callback = $entry['function'] ?? null;
+						if ( PHP_INT_MIN === $priority && 1 === ( $entry['accepted_args'] ?? null )
+							&& [ $this, 'guard_cohort_entry' ] === $callback ) { continue; }
+						$class = 'Automattic\\WooCommerce\\Blocks\\Domain\\Services\\DraftOrders';
+						if ( 'wc_order_statuses' !== $hook || 10 !== $priority || 1 !== ( $entry['accepted_args'] ?? null )
+							|| ! is_array( $callback ) || 2 !== count( $callback ) || ! is_object( $callback[0] )
+							|| $class !== get_class( $callback[0] ) || 'register_draft_order_status' !== $callback[1]
+							|| ! $this->qualified_callback( $hook, $callback, $priority, 1 ) ) { $this->reject(); }
+						$method = new \ReflectionMethod( $class, $callback[1] ); $file = $method->getFileName();
+						if ( $class !== $method->getDeclaringClass()->getName() || ! $file
+							|| ! hash_equals( self::PENDING_DRAFT_STATUS_SOURCE, hash_file( 'sha256', $file ) )
+							|| ++$draft_callbacks > 1 ) { $this->reject(); }
+					}
+				}
+			}
+		}
+		$this->cohort( true );
+	}
+	public function assert_checkout_pending_status_cohort(): void {
+		$this->qualify_checkout_pending_status();
 	}
 	/** Exact Settings writer, explicit fourth receiver argument, frozen ordered registry. */
 	public function qualify_checkout_deferred_payment(): void {

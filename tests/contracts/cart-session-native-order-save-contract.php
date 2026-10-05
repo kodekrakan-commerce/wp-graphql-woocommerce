@@ -13,8 +13,10 @@ require $wc.'/includes/traits/trait-wc-item-totals.php';
 require $wc.'/includes/abstracts/abstract-wc-order.php';
 require $wc.'/includes/class-wc-order.php';
 function wp_list_pluck($values,$field,$index=null) { $out=[]; foreach($values as $key=>$v) {$out[$index===null?$key:(is_object($v)?$v->$index:$v[$index])] = is_object($v)?$v->$field:$v[$field];} return $out; }
-function wc_get_order_statuses(){return ['wc-pending'=>'Pending','wc-failed'=>'Failed','wc-on-hold'=>'On hold','wc-processing'=>'Processing','wc-completed'=>'Completed'];}
-function wc_get_is_paid_statuses(){return ['processing','completed'];}
+if ( ! defined('WL_NATIVE_PENDING_SOURCE_FUNCTIONS') ) {
+ function wc_get_order_statuses(){return ['wc-pending'=>'Pending','wc-failed'=>'Failed','wc-on-hold'=>'On hold','wc-processing'=>'Processing','wc-completed'=>'Completed'];}
+ function wc_get_is_paid_statuses(){return ['processing','completed'];}
+}
 function wc_get_logger(){return new class {function error(...$args){}};}
 function wp_kses_post($s){return $s;} function sanitize_email($s){return $s;}
 function sanitize_text_field($s){return $s;} function current_user_can(...$args){return false;}
@@ -22,7 +24,7 @@ function wp_insert_comment($data){$GLOBALS['notes'][]=$data;return count($GLOBAL
 function update_comment_meta(...$args){} function wc_timezone_string(){return 'UTC';}
 function get_user_by(...$args){return false;} function wc_timezone_offset(){return 0;}
 function get_option($key,$default=false){return $default;}
-function wc_get_container(){return new class {function get($name){return new class {function custom_orders_table_usage_is_enabled(){return false;}};}};}
+function wc_get_container(){return new class {function get($name){return new class {function custom_orders_table_usage_is_enabled(){return false;} function feature_is_enabled(){return false;}};}};}
 function get_current_blog_id(){return 1;} function get_post_meta(...$args){return '';}
 function wc_format_decimal($value,...$args){return (string)$value;}
 function wp_parse_url($url,$component=-1){return parse_url($url,$component);}
