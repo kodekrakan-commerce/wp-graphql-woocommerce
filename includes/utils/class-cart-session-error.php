@@ -19,14 +19,19 @@ final class Cart_Session_Error extends UserError implements ProvidesExtensions {
 	/** @var string */
 	private $session_code;
 
-	/** @param string $code Stable session classification. */
-	public function __construct( $code ) {
+	/**
+	 * @param string $code Stable session classification.
+	 * @param ?\Throwable $previous Internal cause; never part of public extensions.
+	 */
+	public function __construct( $code, ?\Throwable $previous = null ) {
 		$this->session_code = self::INVALID === $code ? self::INVALID : self::UNAVAILABLE;
 		parent::__construct(
 			self::INVALID === $this->session_code
 				? __( 'The cart session is invalid.', 'wp-graphql-woocommerce' )
 				// A failed owned connection cannot run translation/database callbacks.
-				: 'The cart session is temporarily unavailable.'
+				: 'The cart session is temporarily unavailable.',
+			0,
+			$previous
 		);
 	}
 

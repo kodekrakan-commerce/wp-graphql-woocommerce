@@ -544,7 +544,7 @@ class Checkout_Mutation {
 			if ( ! $handler || ! $handler->protects_checkout_order() || $owned_order !== $handler->created_checkout_order( $order_id ) ) { if ( $handler && $handler->protects_checkout_order() ) { $handler->fail_checkout_order(); } throw new \WPGraphQL\WooCommerce\Utils\Cart_Session_Transition_Error(); }
 			$handler->begin_checkout_deferred_payment( $owned_order );
 			try { $deferred_result = apply_filters( 'graphql_woocommerce_checkout_payment_result', null, $order_id, $payment_method, $owned_order ); }
-			catch ( \Throwable $error ) { $handler->fail_checkout_order(); }
+			catch ( \Throwable $error ) { $handler->fail_checkout_order( $error ); }
 			$handler->finish_checkout_deferred_payment( $owned_order, $deferred_result );
 			return $deferred_result;
 		}

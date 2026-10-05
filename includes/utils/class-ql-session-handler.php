@@ -1159,10 +1159,10 @@ class QL_Session_Handler extends WC_Session_Handler {
 	}
 
 	/** Failure is latched before throwing: native WC_Abstract_Order::save catches exceptions. */
-	public function fail_checkout_order(): never {
+	public function fail_checkout_order( ?\Throwable $previous = null ): never {
 		if ( $this->checkout_attempt ) { $this->checkout_attempt->save_failed = true; $this->checkout_attempt->saved = false; $this->checkout_attempt->success = false; }
 		$this->latch_owned_failure();
-		throw new Cart_Session_Error( Cart_Session_Error::UNAVAILABLE );
+		throw new Cart_Session_Error( Cart_Session_Error::UNAVAILABLE, $previous );
 	}
 
 	/** Runs before any qualified external before-save callback can fail. */

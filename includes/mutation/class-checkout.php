@@ -175,7 +175,7 @@ class Checkout {
 
 				return array_merge( [ 'id' => $order_id ], $results );
 			} catch ( \Throwable $e ) {
-				if ( $handler && $handler->protects_checkout_order() ) { $handler->fail_checkout_order(); }
+				if ( $handler && $handler->protects_checkout_order() ) { $handler->fail_checkout_order( $e ); }
 				if ( $e instanceof \WPGraphQL\WooCommerce\Utils\Cart_Session_Error
 					|| $e instanceof \WPGraphQL\WooCommerce\Utils\Cart_Session_Transition_Error ) {
 					// Preserve typed session classification and any durable order.
