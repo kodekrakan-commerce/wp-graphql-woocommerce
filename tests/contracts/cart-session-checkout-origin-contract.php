@@ -8,16 +8,16 @@ error_reporting(E_ALL); ini_set('display_errors','0'); ini_set('log_errors','0')
 $owner=dirname(__DIR__,2);$fixture=__DIR__.'/cart-session-checkout-origin-fixtures.php';
 // SOURCE_PINS_BEGIN
 const ORIGIN_PINS = [
- 'WPGraphQL\\WooCommerce\\Utils\\Cart_Session_Lifecycle'=>'2e08307604a7d17040961d48a6e39c7740122a5e1bad0bc91ea65d77b54a2b6e',
- 'WPGraphQL\\WooCommerce\\Utils\\QL_Session_Handler'=>'4ec0f1fc73d01e0df1aa5d76390ceae5c597677bec2fe4343f9705c27db312fc',
+ 'WPGraphQL\\WooCommerce\\Utils\\Cart_Session_Lifecycle'=>'2f2703f2bedf962ac30be4a7fbde0030e46f69fde539643b1462795a5c6dd21e',
+ 'WPGraphQL\\WooCommerce\\Utils\\QL_Session_Handler'=>'302fe31cc05c2436b9feee565f82e7126deee0a4aa96e4a94803a7144f46608f',
  'WPGraphQL\\WooCommerce\\Utils\\Cart_Session_Operation'=>'0a1f6e9b48e46db49032568b1baf5de17e887b508362e446454968dbfe0834a2',
- 'WPGraphQL\\WooCommerce\\Mutation\\Checkout'=>'5d4a967db00a30c9f17c71725c353e3668bdce64c2ff8ee7cd648e21192390a1',
- 'WPGraphQL\\WooCommerce\\Data\\Mutation\\Checkout_Mutation'=>'3f232394a7174ca66ef17146c939b4de798ff317484f94a875cd1fec32f6706c',
+ 'WPGraphQL\\WooCommerce\\Mutation\\Checkout'=>'786ef32dfb568e7172884debc29c81ea495e0f2f673f1449bf699257648a99a3',
+ 'WPGraphQL\\WooCommerce\\Data\\Mutation\\Checkout_Mutation'=>'9807d06c68c171bcfa9de3d50da8ff1c921b0046732089ea7bc7d2e0b16c54fc',
  'WPGraphQL\\Registry\\TypeRegistry'=>'f8c3f6af8596a01faa88f09a51637bf0b435ebc86fd3946dcaccdadf45b059cc',
  'WPGraphQL\\Type\\WPMutationType'=>'33bfcaeec264a56c94367a9d49dfa61d1e9f21d24acfe903adca9fc4295207e7',
  'WPGraphQL\\Utils\\InstrumentSchema'=>'6f3bf9d2bd1b49798a0adc22aa843b8f5b74e89f73ebcb91916ea12957ba529c',
  'WP_Hook'=>'b839c0e5672246bca8db1ab781ec8835f7732f253c375a237cbf6ec536e8d12e',
- 'WPGraphQL\\Router'=>'cc2ef1ce86d5e3bba0cf3c037530675764e29ca62199c28dca2ce2a48ce8a048',
+ 'WPGraphQL\\Router'=>'b17303c5ef638f31f7383d58f5c2351c7c7b671e440f234151a038b5d9f1a284',
  'WC_Customer'=>'4e1334926e8601dde64e7b875b6098a148ed75f806faec572b9f7ea1f486d0f7',
  'WC_Cart'=>'4e1334926e8601dde64e7b875b6098a148ed75f806faec572b9f7ea1f486d0f7',
  'WC_Cart_Session'=>'4e1334926e8601dde64e7b875b6098a148ed75f806faec572b9f7ea1f486d0f7',

@@ -95,7 +95,7 @@ namespace {
     }
 
 	final class WP_Error {
-		public function __construct( private $code, private $message ) {}
+		public function __construct( private $code = '', private $message = '' ) {}
 		public function get_error_code() { return $this->code; }
 		public function get_error_message() { return $this->message; }
 	}

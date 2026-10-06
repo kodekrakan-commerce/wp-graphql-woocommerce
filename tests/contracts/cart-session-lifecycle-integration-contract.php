@@ -9,9 +9,9 @@
  */
 error_reporting( E_ALL ); ini_set( 'display_errors', '0' ); ini_set( 'log_errors', '0' );
 const INTEGRATION_FIXTURE_SHA = 'e6214e8484bb87f009d154e723657719858111af4e0864c1b19c81a21c3ec2ef';
-const INTEGRATION_ADAPTER_SHA = 'cc2ef1ce86d5e3bba0cf3c037530675764e29ca62199c28dca2ce2a48ce8a048';
-const INTEGRATION_LIFECYCLE_SHA = 'd5f2c190f910a8429bd2a3b33f29643708a3407cb192151c6ef0b47a0317d88a';
-const INTEGRATION_HANDLER_SHA = 'a2948b26008924716e89a043bc629b140769384f33046d5b119c7b8afe0b1dae';
+const INTEGRATION_ADAPTER_SHA = 'b17303c5ef638f31f7383d58f5c2351c7c7b671e440f234151a038b5d9f1a284';
+const INTEGRATION_LIFECYCLE_SHA = '2f2703f2bedf962ac30be4a7fbde0030e46f69fde539643b1462795a5c6dd21e';
+const INTEGRATION_HANDLER_SHA = '302fe31cc05c2436b9feee565f82e7126deee0a4aa96e4a94803a7144f46608f';
 const INTEGRATION_RESULT_SHA = '899f37cf608b43eddba734604ba301e178b02f7bf12edf0b8b920b4053435fd9';
 $owner = dirname( __DIR__, 2 ); $endpoint = __DIR__ . '/cart-session-lifecycle-integration-fixture.php';
 $source_files = [ 'handler' => $owner . '/includes/utils/class-ql-session-handler.php', 'fixture' => $endpoint, 'adapter' => __DIR__ . '/cart-session-owned-handler-fixtures.php' ];

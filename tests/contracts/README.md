@@ -46,6 +46,7 @@ php tests/contracts/cart-session-native-cookie-contract.php
 php tests/contracts/cart-session-native-order-save-contract.php
 # New source-only paid controls additionally require WL_SETTINGS_SOURCE.
 php tests/contracts/cart-session-paid-checkout-contract.php
+php tests/contracts/cart-session-deferred-cart-retirement-contract.php
 php tests/contracts/cart-session-paid-cohort-contract.php
 php tests/contracts/cart-session-native-customer-adoption-contract.php
 php tests/contracts/cart-session-armed-adoption-contract.php
@@ -192,3 +193,39 @@ a lost final commit reply or delivery failure can retain complete durable state
 while credentials are withheld. Pending admission/recovery/provider/intent and
 return gates remain separate. The accepted native free fixture and its completed
 cleanup are not changed or replayed by these source controls.
+
+## Negotiated ordinary deferred cart retirement
+
+The optional checkout `metaData` request `_wl_checkout_cart_retirement` accepts
+exactly one `v1:<lowercase UUIDv4>` value. Without it, ordinary deferred checkout
+retains its legacy cart behavior. The request is never saved as order metadata.
+A negotiated ordinary Stripe checkout checks the admitted session, order owner,
+unpaid deferred order, awaiting order ID and submitted cart hash while the
+session scope remains held. It then runs native `empty_cart(true)`, including
+the persistent cart, before payment can leave the checkout page. It carries the already-validated
+awaiting-session authorization into the existing bounded receipt map before
+clearing, so reused legacy guest orders retain intent/receipt access. Protected guest
+account creation keeps its separate destination lifecycle and issues no ordinary
+retirement acknowledgment.
+
+Only completed retirement can persist `_wl_checkout_cart_retired` as
+`v1:<request UUIDv4>:<fresh 32 lowercase hexadecimal characters>`. The browser
+metadata whitelist cannot write either protocol key. Native metadata readback
+checks exactly one persisted row and the current order, owner, datastore, cart
+and session after callbacks. The frontend must recognize this marker only on the
+current checkout response bound to its private request nonce and receipt lifetime.
+Missing or invalid acknowledgment keeps the legacy post-confirmation cart path;
+old receipt metadata never grants cart mutation authority.
+
+A request-local flag burns before native cart effects. Any later exception,
+including failed acknowledgment saving or an after-checkout hook, makes the
+session unavailable and preserves the existing order for verification/retry.
+It retains the internal exception cause without publishing private details.
+
+The retirement runner has 33 component cases using the actual checkout closure,
+process helper, owned handler, native WC cart/session and native WCData metadata
+methods. It covers fresh/reused orders and ordinary guests, preserved guest order binding, legacy callers, invalid
+requests, browser spoofing, fresh replacement of old markers and failed or drifted
+acknowledgment writes. Order insertion/factory, totals/validation, origin admission,
+hooks, SQL/auth/cache remain explicit recording seams. These checks establish no
+installed HTTP, provider, payment failure/retry or browser redirect acceptance.

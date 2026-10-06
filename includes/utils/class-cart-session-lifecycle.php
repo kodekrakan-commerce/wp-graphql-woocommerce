@@ -10,7 +10,7 @@ final class Cart_Session_Lifecycle {
 	private const PENDING_DRAFT_STATUS_SOURCE = '2d8b83747317a7f51011cb80ef597f3b8d89cc2030c5691767aad5ac3ad78b3e';
 
 	private const SOURCE_COHORT = [
-		'WPGraphQL\\WooCommerce\\Utils\\QL_Session_Handler' => '4ec0f1fc73d01e0df1aa5d76390ceae5c597677bec2fe4343f9705c27db312fc',
+		'WPGraphQL\\WooCommerce\\Utils\\QL_Session_Handler' => '302fe31cc05c2436b9feee565f82e7126deee0a4aa96e4a94803a7144f46608f',
 		'WP_Hook' => 'b839c0e5672246bca8db1ab781ec8835f7732f253c375a237cbf6ec536e8d12e',
 		'WPGraphQL\\Router' => '4c85426fdc7223c69358ed70e68ba45e4c5f632a4234f860ebba41d68ec32ea7',
 		'WC_Customer' => '14ca0da46d63445e72053cba79fad368393490e7bf416e53936eeb17c579a452',
@@ -20,8 +20,8 @@ final class Cart_Session_Lifecycle {
 	];
 	private const ORIGIN_SOURCE_COHORT = [
 		'WPGraphQL\\WooCommerce\\Utils\\Cart_Session_Operation' => '0a1f6e9b48e46db49032568b1baf5de17e887b508362e446454968dbfe0834a2',
-		'WPGraphQL\\WooCommerce\\Mutation\\Checkout' => '5d4a967db00a30c9f17c71725c353e3668bdce64c2ff8ee7cd648e21192390a1',
-		'WPGraphQL\\WooCommerce\\Data\\Mutation\\Checkout_Mutation' => '3f232394a7174ca66ef17146c939b4de798ff317484f94a875cd1fec32f6706c',
+		'WPGraphQL\\WooCommerce\\Mutation\\Checkout' => '786ef32dfb568e7172884debc29c81ea495e0f2f673f1449bf699257648a99a3',
+		'WPGraphQL\\WooCommerce\\Data\\Mutation\\Checkout_Mutation' => '9807d06c68c171bcfa9de3d50da8ff1c921b0046732089ea7bc7d2e0b16c54fc',
 		'WPGraphQL\\Type\\WPMutationType' => '33bfcaeec264a56c94367a9d49dfa61d1e9f21d24acfe903adca9fc4295207e7',
 		'WPGraphQL\\Utils\\InstrumentSchema' => '6f3bf9d2bd1b49798a0adc22aa843b8f5b74e89f73ebcb91916ea12957ba529c',
 	];

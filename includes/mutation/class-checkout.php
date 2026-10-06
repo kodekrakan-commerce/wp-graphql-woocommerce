@@ -176,6 +176,11 @@ class Checkout {
 				return array_merge( [ 'id' => $order_id ], $results );
 			} catch ( \Throwable $e ) {
 				if ( $handler && $handler->protects_checkout_order() ) { $handler->fail_checkout_order( $e ); }
+				if ( $handler && $handler->has_ordinary_checkout_cart_retirement() ) {
+					// Retirement may already be durable, even when a later hook fails.
+					// Withhold this response and preserve the order for verification.
+					$handler->fail_ordinary_checkout_cart_retirement( $e );
+				}
 				if ( $e instanceof \WPGraphQL\WooCommerce\Utils\Cart_Session_Error
 					|| $e instanceof \WPGraphQL\WooCommerce\Utils\Cart_Session_Transition_Error ) {
 					// Preserve typed session classification and any durable order.

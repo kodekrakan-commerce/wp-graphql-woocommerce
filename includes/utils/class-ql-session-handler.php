@@ -97,6 +97,8 @@ class QL_Session_Handler extends WC_Session_Handler {
 	private $guest_marker_rejected = false;
 	private $guest_marker_rejected_closed = false;
 	private $checkout_attempt;
+	/** Sticky before ordinary cart retirement: late errors cannot purge its order. */
+	private $ordinary_checkout_retirement_order_id = 0;
 	private $checkout_pending_rejected = false;
 
 	/** @var string|null The admitted persisted session key. */
@@ -1071,6 +1073,29 @@ class QL_Session_Handler extends WC_Session_Handler {
 			$this->reject_cart_operation(); throw new Cart_Session_Transition_Error();
 		}
 		$this->owned_operation->enter_checkout( $entry, $input, $context, $info );
+	}
+
+	/** No guest adoption or payment authority; only retain a durable retry target. */
+	public function begin_ordinary_checkout_cart_retirement( $order ): void {
+		$this->assert_session_ready(); $this->assert_owned_scope();
+		if ( $this->protects_checkout_order() || $this->ordinary_checkout_retirement_order_id
+			|| ( \WC()->session ?? null ) !== $this || ! $order instanceof \WC_Order
+			|| $order->get_id() <= 0 || $this->admitted_user_id !== (int) get_current_user_id()
+			|| (int) $order->get_customer_id() !== $this->admitted_user_id
+			|| (int) $this->get( 'order_awaiting_payment' ) !== $order->get_id() ) {
+			throw new Cart_Session_Transition_Error();
+		}
+		$this->ordinary_checkout_retirement_order_id = $order->get_id();
+	}
+
+	public function has_ordinary_checkout_cart_retirement(): bool {
+		return $this->ordinary_checkout_retirement_order_id > 0;
+	}
+
+	public function fail_ordinary_checkout_cart_retirement( ?\Throwable $previous = null ): void {
+		if ( ! $this->has_ordinary_checkout_cart_retirement() ) { throw new Cart_Session_Transition_Error(); }
+		$this->latch_owned_failure();
+		throw new Cart_Session_Error( Cart_Session_Error::UNAVAILABLE, $previous );
 	}
 
 	/** One-use actual final creation branch; all uncertainty burns the guest reservation. */
