@@ -21,7 +21,7 @@ final class Cart_Session_Lifecycle {
 	private const ORIGIN_SOURCE_COHORT = [
 		'WPGraphQL\\WooCommerce\\Utils\\Cart_Session_Operation' => '0a1f6e9b48e46db49032568b1baf5de17e887b508362e446454968dbfe0834a2',
 		'WPGraphQL\\WooCommerce\\Mutation\\Checkout' => '786ef32dfb568e7172884debc29c81ea495e0f2f673f1449bf699257648a99a3',
-		'WPGraphQL\\WooCommerce\\Data\\Mutation\\Checkout_Mutation' => '9807d06c68c171bcfa9de3d50da8ff1c921b0046732089ea7bc7d2e0b16c54fc',
+		'WPGraphQL\\WooCommerce\\Data\\Mutation\\Checkout_Mutation' => '42822ccbcb7a56803b48cec2b374682785361e298a7e4fb595e5562d39810eba',
 		'WPGraphQL\\Type\\WPMutationType' => '33bfcaeec264a56c94367a9d49dfa61d1e9f21d24acfe903adca9fc4295207e7',
 		'WPGraphQL\\Utils\\InstrumentSchema' => '6f3bf9d2bd1b49798a0adc22aa843b8f5b74e89f73ebcb91916ea12957ba529c',
 	];

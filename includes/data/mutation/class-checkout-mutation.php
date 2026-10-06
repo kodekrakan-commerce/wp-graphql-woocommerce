@@ -749,6 +749,11 @@ class Checkout_Mutation {
 		}
 		$handler->assert_session_ready();
 		$handler->assert_owned_scope();
+		// Ordinary deferral can save metadata through another native order receiver.
+		// Read persisted deferral under the held scope before validating retirement.
+		$order->read_meta_data( true );
+		$handler->assert_session_ready();
+		$handler->assert_owned_scope();
 		if ( $order->get_id() !== $order_id
 			|| 'stripe' !== $order->get_payment_method() || 'yes' !== $order->get_meta( '_woonuxt_deferred_payment' )
 			|| ! $order->has_status( [ 'pending', 'failed' ] ) || $order->is_paid() || $order->get_date_paid() || $order->get_transaction_id()

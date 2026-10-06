@@ -30,7 +30,7 @@ function wp_parse_args($args, $defaults = []) { return array_merge($defaults, $a
 function did_action($hook) { return 1; }
 function apply_filters_deprecated($hook, $args, ...$unused) { return apply_filters($hook, ...$args); }
 function delete_user_meta($id, $key) { $GLOBALS['retired_persistent'][] = [$id, $key]; return true; }
-function wc_get_order($id) { return $id === 91 ? $GLOBALS['retirement_order'] : false; }
+function wc_get_order($id) { return $id === 91 ? ($GLOBALS['retirement_lookup_order'] ?? $GLOBALS['retirement_order']) : false; }
 class WC_Order_Factory { static function get_order($id) { return wc_get_order($id); } }
 class WC_Customer { function save() {} }
 final class RetirementCart extends WC_Cart {
@@ -41,9 +41,9 @@ final class RetirementCart extends WC_Cart {
     function needs_payment() { return true; }
 }
 final class RetirementMetadataStore {
-    public array $rows = []; public int $reads = 0; public bool $persist = true; public $on_read; public $on_write;
+    public array $rows = []; public int $reads = 0; public int $full_saves = 0; public bool $persist = true; public $on_read; public $on_write;
     function get_internal_meta_keys() { return []; }
-    function update(&$order) { $order->save_meta_data(); }
+    function update(&$order) { ++$this->full_saves; $order->save_meta_data(); }
     function add_meta(&$order, $meta) {
         if ($this->on_write) ($this->on_write)($order, $this);
         $id = count($this->rows) + 1;
@@ -74,7 +74,7 @@ final class RetirementOrigin {
     function enter_checkout(...$args) { ++$this->entries; }
     function leave_checkout(...$args) { ++$this->leaves; }
 }
-function retirement_fixture($reuse = false, $user = 17) {
+function retirement_fixture($reuse = false, $user = 17, $native_deferral = false) {
     [$handler, $db, $session_id] = owned_start($user);
     $runtime = new RetirementRuntime(); $runtime->session = $handler; $runtime->customer = new WC_Customer();
     HandlerContractBoundary::$woocommerce = $runtime;
@@ -98,7 +98,7 @@ function retirement_fixture($reuse = false, $user = 17) {
     $store->rows = [(object) ['meta_id' => 1, 'meta_key' => '_woonuxt_deferred_payment', 'meta_value' => 'yes']];
     $order->init_meta_data($store->rows);
     save_property($order, 'data_store', $store);
-    $GLOBALS['retirement_order'] = $order; $GLOBALS['retired_persistent'] = [];
+    $GLOBALS['retirement_order'] = $order; $GLOBALS['retirement_lookup_order'] = null; $GLOBALS['retired_persistent'] = [];
     $origin = new RetirementOrigin(); save_property($handler, 'owned_operation', $origin);
     $runtime->checkout = new class {
         public int $creates = 0;
@@ -110,7 +110,14 @@ function retirement_fixture($reuse = false, $user = 17) {
     };
     add_filter('woocommerce_checkout_update_customer_data', fn() => false, 10, 1);
     add_filter('woocommerce_checkout_registration_required', fn() => false, 10, 1);
-    add_filter('graphql_woocommerce_checkout_payment_result', fn() => ['result' => 'pending', 'redirect' => ''], 10, 3);
+    if ($native_deferral) {
+        $settings = rtrim(getenv('WL_SETTINGS_SOURCE') ?: '', '/');
+        owned_expect(is_file($settings.'/includes/deferred-checkout.php'));
+        if (!function_exists('woonuxt_defer_stripe_checkout')) require $settings.'/includes/deferred-checkout.php';
+        else add_filter('graphql_woocommerce_checkout_payment_result', 'woonuxt_defer_stripe_checkout', 10, 4);
+    } else {
+        add_filter('graphql_woocommerce_checkout_payment_result', fn() => ['result' => 'pending', 'redirect' => ''], 10, 3);
+    }
     add_action('woocommerce_cart_emptied', [$cart_session, 'destroy_cart_session'], 10, 1);
     if ($reuse) {
         $handler->set('order_awaiting_payment', 91);
@@ -127,6 +134,55 @@ function retirement_checkout($meta = null) {
     return $entry(['paymentMethod' => 'stripe', 'billing' => ['country' => 'PT'], 'metaData' => $meta], $context, $info);
 }
 $cases = [];
+$cases['distinct-instance persisted native Settings deferral refreshes the original checkout order before retirement'] = function() {
+    [$h, $db, $wc, $order] = retirement_fixture(false, 17, true);
+    $store = $order->get_data_store(); $store->rows = []; $order->init_meta_data([]);
+    $deferred_order = clone $order; $deferred_order->init_meta_data([]);
+    owned_expect($deferred_order !== $order && $deferred_order instanceof WC_Order);
+    owned_expect($deferred_order->get_data_store() === $store && '' === $order->get_meta('_woonuxt_deferred_payment'));
+    // Actual process_checkout already captured its first order. Settings' ordinary
+    // three-argument hook loads a second native receiver from the same durable store.
+    add_action('woocommerce_checkout_order_processed', function() use ($deferred_order) {
+        $GLOBALS['retirement_lookup_order'] = $deferred_order;
+    }, 10, 3);
+    $observed = false; $before_retirement_saves = null;
+    add_filter('graphql_woocommerce_checkout_payment_result', function($result, $id, $method) use ($order, $deferred_order, $store, &$observed, &$before_retirement_saves) {
+        owned_expect(3 === func_num_args() && 91 === $id && 'stripe' === $method);
+        owned_expect(['result' => 'pending', 'redirect' => ''] === $result);
+        $rows = array_values(array_filter($store->rows, fn($row) => $row->meta_key === '_woonuxt_deferred_payment'));
+        owned_expect(1 === count($rows) && 'yes' === $rows[0]->meta_value);
+        owned_expect('yes' === $deferred_order->get_meta('_woonuxt_deferred_payment'));
+        owned_expect('' === $order->get_meta('_woonuxt_deferred_payment'));
+        $observed = true; $before_retirement_saves = $store->full_saves;
+        return $result;
+    }, 11, 3);
+    $gateway = new class {
+        public int $calls = 0;
+        function validate_fields() {}
+        function process_payment(...$args) { ++$this->calls; throw new RuntimeException('Unexpected gateway processing.'); }
+    };
+    $wc->payment_gateways = new class($gateway) {
+        function __construct(public $gateway) {}
+        function get_available_payment_gateways() { return ['stripe' => $this->gateway]; }
+    };
+    $result = null; $error = null;
+    try { $result = retirement_checkout(); } catch (\GraphQL\Error\UserError $caught) { $error = $caught; }
+    $GLOBALS['retirement_stale_order_observation'] = [
+        'distinct_native_receiver' => $deferred_order !== $order,
+        'durable_deferral_yes_original_cache_empty_before_retirement' => $observed,
+        'error_code' => $error instanceof \GraphQL\Error\ProvidesExtensions ? ($error->getExtensions()['code'] ?? null) : null,
+        'gateway_calls' => $gateway->calls, 'cart_retired' => $wc->cart->is_empty(),
+    ];
+    owned_expect($observed && 0 === $gateway->calls);
+    owned_expect(null === $error && ['id' => 91, 'result' => 'pending', 'redirect' => ''] === $result);
+    owned_expect('yes' === $order->get_meta('_woonuxt_deferred_payment') && retirement_acknowledged($order));
+    owned_expect($store->full_saves === $before_retirement_saves && $store->reads > 0);
+    owned_expect($wc->cart->is_empty() && !$h->get('cart') && !$h->get('order_awaiting_payment'));
+    owned_expect([[17, '_woocommerce_persistent_cart_1']] === $GLOBALS['retired_persistent']);
+    owned_expect(!$order->is_paid() && !$order->get_date_paid() && '' === $order->get_transaction_id());
+    owned_expect(0 === \WPGraphQL\WooCommerce\Data\Mutation\Order_Mutation::$purges);
+    $h->complete_owned_scope(); owned_expect('released' === $db->state);
+};
 foreach ([false, true] as $reuse) {
     $cases[$reuse ? 'verified reuse retires once without creating another order' : 'fresh acknowledged checkout retires its session and persistent cart'] = function() use ($reuse) {
         [$h, $db, $wc, $order, $origin] = retirement_fixture($reuse);
@@ -259,6 +315,9 @@ foreach (['missing', 'duplicate', 'mismatch', 'write-throws', 'scope', 'owner', 
         if ($failure === 'missing') $store->persist = false;
         if ($failure === 'write-throws') $store->on_write = fn() => throw new RuntimeException('Controlled metadata failure.');
         $store->on_read = function($order, $store) use ($failure, $h) {
+            // These cases target acknowledgment readback after retirement, not
+            // the initial durable deferral refresh before cart effects.
+            if (!array_filter($store->rows, fn($row) => $row->meta_key === '_wl_checkout_cart_retired')) return;
             if ($failure === 'duplicate') $store->rows[] = (object) ['meta_id' => 3, 'meta_key' => '_wl_checkout_cart_retired', 'meta_value' => 'old'];
             if ($failure === 'mismatch') foreach ($store->rows as $row) if ($row->meta_key === '_wl_checkout_cart_retired') $row->meta_value = 'old';
             if ($failure === 'scope') $h->discard_owned_scope();
@@ -283,6 +342,7 @@ foreach ($cases as $name => $test) {
     try { $test(); } catch (Throwable $e) { $failed[] = $name; $caller = $e->getTrace()[0]['line'] ?? $e->getLine(); fwrite(STDERR, $name.': '.get_class($e).' '.$e->getMessage().' caller '.$caller."\n"); }
 }
 echo json_encode(['suite' => 'deferred-cart-retirement', 'cases' => $executed, 'failed' => $failed,
+    'stale_order_observation' => $GLOBALS['retirement_stale_order_observation'] ?? null,
     'limits' => 'Actual checkout entry/process, owned handler and native cart/session methods; controlled origin/order insertion/factory/totals/SQL/hooks. No installed HTTP/provider proof.'], JSON_THROW_ON_ERROR)."\n";
 exit($failed ? 1 : 0);
 }
