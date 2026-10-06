@@ -8,7 +8,7 @@
  * --cli-only skips the localhost server; it does not claim HTTP header proof.
  */
 error_reporting( E_ALL ); ini_set( 'display_errors', '0' ); ini_set( 'log_errors', '0' );
-const INTEGRATION_FIXTURE_SHA = 'e6214e8484bb87f009d154e723657719858111af4e0864c1b19c81a21c3ec2ef';
+const INTEGRATION_FIXTURE_SHA = 'c059845e60afe390e4aa7a085681fe78795514c5500b57f36d6fc2e2935b577c';
 const INTEGRATION_ADAPTER_SHA = 'b17303c5ef638f31f7383d58f5c2351c7c7b671e440f234151a038b5d9f1a284';
 const INTEGRATION_LIFECYCLE_SHA = 'b7b929eac5e6a4a5722221ff9f461532f84e06ff0fd99d1ade0e72cc3d33bd33';
 const INTEGRATION_HANDLER_SHA = '302fe31cc05c2436b9feee565f82e7126deee0a4aa96e4a94803a7144f46608f';
@@ -29,7 +29,7 @@ $source_files['ExecutionResult'] = $gql . '/vendor/webonyx/graphql-php/src/Execu
 if ( ! hash_equals( INTEGRATION_RESULT_SHA, hash_file( 'sha256', $source_files['ExecutionResult'] ) ) ) { fwrite( STDERR, "Reviewed native ExecutionResult source differs.\n" ); exit( 2 ); }
 $source_before = array_map( fn( $file ) => hash_file( 'sha256', $file ), $source_files );
 putenv( 'WL_INTEGRATION_FIXTURE_SHA=' . INTEGRATION_FIXTURE_SHA ); putenv( 'WL_INTEGRATION_ADAPTER_SHA=' . INTEGRATION_ADAPTER_SHA ); putenv( 'WL_INTEGRATION_HANDLER_SHA=' . INTEGRATION_HANDLER_SHA );
-putenv('WL_INTEGRATION_OPERATION_SHA=0a1f6e9b48e46db49032568b1baf5de17e887b508362e446454968dbfe0834a2');
+putenv('WL_INTEGRATION_OPERATION_SHA=eec37098e2afb4d9a8d3133b41e6e6b1a08a935533c799514f8a8ac3516367fa');
 putenv( 'WL_INTEGRATION_RESULT_SHA=' . INTEGRATION_RESULT_SHA );
 putenv( 'WL_INTEGRATION_LIFECYCLE_SHA=' . INTEGRATION_LIFECYCLE_SHA );
 if ( ! hash_equals( INTEGRATION_LIFECYCLE_SHA, hash_file( 'sha256', $source_files['lifecycle'] ) ) ) { fwrite( STDERR, "Fixed lifecycle source differs.\n" ); exit( 2 ); }

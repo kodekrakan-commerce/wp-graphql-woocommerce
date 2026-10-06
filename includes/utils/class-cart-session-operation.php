@@ -130,11 +130,40 @@ final class Cart_Session_Operation {
 				|| ( 'login' === $name && 'password' !== ( $input['provider'] ?? null ) ) ) {
 				$this->reject();
 			}
+			if ( 'refreshToken' === $name ) {
+				if ( null !== $pre || ! isset( $input['refreshToken'] ) || ! is_string( $input['refreshToken'] ) ) { $this->reject(); }
+				$this->assert_refresh_entry( $callback );
+			}
 		} else {
 			$this->assert_ordinary_input( $name, $input );
 			$this->handler->assert_session_ready();
 		}
 		return $pre;
+	}
+
+	/** Only the reviewed installed native refresh factory may change identity here. */
+	private function assert_refresh_entry( $entry ): void {
+		try {
+			if ( ! $entry instanceof \Closure ) { $this->reject(); }
+			$class = \WPGraphQL\Login\Mutation\RefreshToken::class;
+			$sources = defined( 'WOOGRAPHQL_CART_SESSION_SOURCE_COHORT' ) ? WOOGRAPHQL_CART_SESSION_SOURCE_COHORT : null;
+			foreach ( [ $class, \WPGraphQL\Login\Auth\TokenManager::class, \WPGraphQL\Login\Auth\User::class,
+				\WPGraphQL\Login\Utils\Utils::class, \WPGraphQL\Login\Vendor\Firebase\JWT\JWT::class,
+				\WPGraphQL\Login\Vendor\Firebase\JWT\Key::class ] as $source ) {
+				$expected = is_array( $sources ) ? ( $sources[ $source ] ?? null ) : null;
+				$file = ( new \ReflectionClass( $source ) )->getFileName();
+				if ( ! is_string( $expected ) || ! preg_match( '/\A[a-f0-9]{64}\z/D', $expected )
+					|| ! $file || ! hash_equals( $expected, hash_file( 'sha256', $file ) ) ) { $this->reject(); }
+			}
+			$reflection = new \ReflectionFunction( $entry );
+			$factory = new \ReflectionMethod( $class, 'mutate_and_get_payload' );
+			if ( ! $reflection->isStatic() || null !== $reflection->getClosureThis()
+				|| ( $reflection->getClosureScopeClass() ? $reflection->getClosureScopeClass()->getName() : null ) !== $class
+				|| $factory->getDeclaringClass()->getName() !== $class
+				|| $reflection->getFileName() !== $factory->getFileName()
+				|| $reflection->getStartLine() !== $factory->getStartLine() + 1 || $reflection->getEndLine() !== $factory->getEndLine() - 1
+				|| [] !== $reflection->getStaticVariables() ) { $this->reject(); }
+		} catch ( \Throwable $error ) { $this->reject(); }
 	}
 
 	/** Interim holds also apply after trusted extensions finish filtering input. */
@@ -170,6 +199,10 @@ final class Cart_Session_Operation {
 
 	/** Compare-only terminal observation, never return a permit or invoke a callback. */
 	public function capture_checkout_origin( $pre, $name, $callback, $input, $context, $info ) {
+		if ( $this->handler->is_graphql_session() && is_string( $name ) && 'refreshToken' === lcfirst( $name ) ) {
+			// The terminal filter also refuses a trusted earlier filter's replacement payload.
+			return $this->before_mutation( $pre, $name, $callback, $input, $context, $info );
+		}
 		if ( ! $this->handler->is_graphql_session() || 'checkout' !== $name ) { return $pre; }
 		$this->checkout_boundary();
 		if ( $this->failed || null !== $pre || ! $info instanceof ResolveInfo || ! is_array( $input )
@@ -250,7 +283,7 @@ final class Cart_Session_Operation {
 				$root_args = '__typename' === $name ? [] : Values::getArgumentValues( $type->getField( $name ), $nodes[0], $info->variableValues );
 				$this->assert_ordinary_input( $name, $root_args['input'] ?? [] );
 			}
-			if ( $type === $info->schema->getMutationType() && in_array( $name, [ 'login', 'logout' ], true ) ) {
+			if ( $type === $info->schema->getMutationType() && in_array( $name, [ 'login', 'logout', 'refreshToken' ], true ) ) {
 				$auth[ $key ] = $nodes;
 			}
 		}
@@ -274,7 +307,8 @@ final class Cart_Session_Operation {
 			$this->reject();
 		}
 		$payload_type = Type::getNamedType( $field->getType() );
-		if ( $payload_type->name !== ( 'login' === $this->purpose ? 'LoginPayload' : 'LogoutPayload' ) ) {
+		$expected_payload = [ 'login' => 'LoginPayload', 'logout' => 'LogoutPayload', 'refreshToken' => 'RefreshTokenPayload' ][ $this->purpose ];
+		if ( $payload_type->name !== $expected_payload ) {
 			$this->reject();
 		}
 		foreach ( $nodes as $node ) {
@@ -303,6 +337,10 @@ final class Cart_Session_Operation {
 	private function permits_path( array $path, $parent_name ) {
 		if ( $path[0] !== $this->purpose ) {
 			return false;
+		}
+		if ( 'refreshToken' === $this->purpose ) {
+			return 2 === count( $path ) && 'RefreshTokenPayload' === $parent_name
+				&& in_array( $path[1], [ 'authToken', 'authTokenExpiration', 'success', 'clientMutationId', '__typename' ], true );
 		}
 		if ( 2 === count( $path ) ) {
 			$allowed = 'login' === $this->purpose
@@ -348,6 +386,15 @@ final class Cart_Session_Operation {
 				|| $id !== (int) $payload['id'] || $id !== (int) $payload['user']->ID ) {
 				$this->reject();
 			}
+		} elseif ( 'refreshToken' === $this->purpose ) {
+			if ( ! is_array( $payload ) || ! isset( $payload['success'] ) || ! is_bool( $payload['success'] ) ) { $this->reject(); }
+			if ( true === $payload['success'] ) {
+				if ( $id <= 0 || ( $this->starting_identity > 0 && $id !== $this->starting_identity )
+					|| ! isset( $payload['authToken'], $payload['authTokenExpiration'] )
+					|| ! is_string( $payload['authToken'] ) || '' === trim( $payload['authToken'] )
+					|| ! is_int( $payload['authTokenExpiration'] ) || $payload['authTokenExpiration'] <= 0 ) { $this->reject(); }
+			} elseif ( $id !== $this->starting_identity || null !== ( $payload['authToken'] ?? null )
+				|| null !== ( $payload['authTokenExpiration'] ?? null ) ) { $this->reject(); }
 		} elseif ( 0 !== $id ) {
 			$this->reject();
 		}
