@@ -22,6 +22,15 @@ class Session_Transaction_Manager {
 	public $transaction_id = null;
 
 	/**
+	 * Whether this request has actually acquired its queue head.
+	 *
+	 * Queue membership alone does not admit a waiting transaction.
+	 *
+	 * @var bool
+	 */
+	private $transaction_started = false;
+
+	/**
 	 * Instance of parent session handler
 	 *
 	 * @var \WPGraphQL\WooCommerce\Utils\QL_Session_Handler
@@ -131,13 +140,11 @@ class Session_Transaction_Manager {
 			return;
 		}
 
-		// Bail if transaction has already been completed. There are times when the underlying action runs twice.
-		if ( ! is_null( $this->transaction_id ) ) {
-			$transaction_queue = get_transient( "woo_session_transactions_queue_{$this->session_handler->get_customer_id()}" );
-			if ( in_array( $this->transaction_id, array_column( $transaction_queue, 'transaction_id' ), true ) ) {
-				return;
-			}
-		} else {
+		// A repeated field hook must not reload a transaction already admitted by this request.
+		if ( $this->transaction_started ) {
+			return;
+		}
+		if ( is_null( $this->transaction_id ) ) {
 			// Initialize transaction ID.
 			$mutation             = $info->fieldName; // phpcs:ignore WordPress.NamingConventions.ValidVariableName.UsedPropertyNotSnakeCase
 			$this->transaction_id = \uniqid( "wooSession_{$mutation}_" );
@@ -152,6 +159,7 @@ class Session_Transaction_Manager {
 
 			// Set a timestamp on the transaction, which will allow us to check for any stale transactions that accidentally get left behind.
 			$this->set_timestamp();
+			$this->transaction_started = true;
 		}
 	}
 
@@ -229,7 +237,7 @@ class Session_Transaction_Manager {
 		}
 
 		// Bail if not the expected mutation.
-		if ( str_starts_with( $this->transaction_id, "wooSession_{$mutation}_" ) ) {
+		if ( ! str_starts_with( $this->transaction_id, "wooSession_{$mutation}_" ) ) {
 			return;
 		}
 
@@ -240,6 +248,7 @@ class Session_Transaction_Manager {
 		if ( $this->transaction_id !== $transaction_queue[0]['transaction_id'] ) {
 			$this->save_transaction_queue( [] );
 			$this->transaction_id = null;
+			$this->transaction_started = false;
 			throw new UserError( __( 'Woo session transaction executed out of order', 'wp-graphql-woocommerce' ) );
 		} else {
 
@@ -253,10 +262,13 @@ class Session_Transaction_Manager {
 			 * @param string|null $transition_id     Removed transaction ID.
 			 * @param array       $transaction_queue Transaction Queue.
 			 */
-			do_action( 'woographql_session_transaction_complete', $this->transaction_id, $transaction_queue );
-
-			// Clear transaction ID.
-			$this->transaction_id = null;
+			try {
+				do_action( 'woographql_session_transaction_complete', $this->transaction_id, $transaction_queue );
+			} finally {
+				// Queue ownership has ended even if a completion callback throws.
+				$this->transaction_id = null;
+				$this->transaction_started = false;
+			}
 		}
 	}
 

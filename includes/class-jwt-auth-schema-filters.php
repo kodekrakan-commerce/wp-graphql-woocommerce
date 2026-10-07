@@ -202,7 +202,7 @@ class JWT_Auth_Schema_Filters {
 						 */
 						$session = \WC()->session;
 
-						return apply_filters( 'graphql_customer_session_token', $session->build_token() );
+						return $session->build_customer_token();
 					},
 				]
 			);

@@ -259,28 +259,31 @@ class Checkout_Mutation {
 	 *
 	 * @return void
 	 */
-	protected static function process_customer( $data ) {
+	protected static function process_customer( $data, $context, $info ) {
 		// phpcs:ignore WordPress.NamingConventions.PrefixAllGlobals.NonPrefixedHooknameFound
 		$customer_id = apply_filters( 'woocommerce_checkout_customer_id', get_current_user_id() );
 
-		if ( ! is_user_logged_in() && ( self::is_registration_required() || ! empty( $data['createaccount'] ) ) ) {
-			$username    = ! empty( $data['account_username'] ) ? $data['account_username'] : '';
-			$password    = ! empty( $data['account_password'] ) ? $data['account_password'] : '';
-			$customer_id = wc_create_new_customer(
-				$data['billing_email'],
-				$username,
-				$password,
-				[
-					'first_name' => ! empty( $data['billing_first_name'] ) ? $data['billing_first_name'] : '',
-					'last_name'  => ! empty( $data['billing_last_name'] ) ? $data['billing_last_name'] : '',
-				]
-			);
-
-			if ( is_wp_error( $customer_id ) ) {
-				throw new UserError( $customer_id->get_error_message() );
+		$session = WC()->session;
+		$is_graphql_session = $session instanceof \WPGraphQL\WooCommerce\Utils\QL_Session_Handler && $session->is_graphql_session();
+		if ( $is_graphql_session ) {
+			$session->assert_session_ready();
+			if ( (string) $customer_id !== (string) get_current_user_id() ) {
+				throw new \WPGraphQL\WooCommerce\Utils\Cart_Session_Transition_Error();
 			}
+		}
 
-			wc_set_customer_auth_cookie( $customer_id );
+		if ( ! is_user_logged_in() && ( self::is_registration_required() || ! empty( $data['createaccount'] ) ) ) {
+			// Consume authority only in this final filtered branch, after its policy decision.
+			if ( $is_graphql_session ) {
+				$customer_id = $session->create_checkout_customer( $data, $context, $info );
+			} else {
+				$username = ! empty( $data['account_username'] ) ? $data['account_username'] : '';
+				$password = ! empty( $data['account_password'] ) ? $data['account_password'] : '';
+				$customer_id = wc_create_new_customer( $data['billing_email'], $username, $password,
+					[ 'first_name' => $data['billing_first_name'] ?? '', 'last_name' => $data['billing_last_name'] ?? '' ] );
+				if ( is_wp_error( $customer_id ) ) { throw new UserError( $customer_id->get_error_message() ); }
+				wc_set_customer_auth_cookie( $customer_id );
+			}
 
 			// As we are now logged in, checkout will need to refresh to show logged in data.
 			WC()->session->set( 'reload_checkout', true );
@@ -513,7 +516,7 @@ class Checkout_Mutation {
 	 *
 	 * @return array Processed payment results.
 	 */
-	protected static function process_order_payment( $order_id, $payment_method ) {
+	protected static function process_order_payment( $order_id, $payment_method, $owned_order = null ) {
 		$available_gateways = WC()->payment_gateways->get_available_payment_gateways();
 
 		if ( ! isset( $available_gateways[ $payment_method ] ) ) {
@@ -527,13 +530,24 @@ class Checkout_Mutation {
 		 * Allow an integration to defer payment after checkout validation and order creation.
 		 *
 		 * Return null for normal gateway processing, or a payment result array.
-		 * A deferred result must not use 'success': that empties the cart below.
+		 * Negotiated successful deferral retires the submitted cart before HTTP completion.
+		 * Protected account creation separately verifies its destination lifecycle.
 		 * This hook never applies to prepaid/free orders or native WooCommerce checkout.
 		 *
 		 * @param array|null $result         Payment result override.
 		 * @param int        $order_id       Validated checkout order ID.
 		 * @param string     $payment_method Available gateway ID.
+		 * @param \WC_Order|null $owned_order Exact native order for protected callers.
 		 */
+		$handler = WC()->session instanceof \WPGraphQL\WooCommerce\Utils\QL_Session_Handler ? WC()->session : null;
+		if ( null !== $owned_order ) {
+			if ( ! $handler || ! $handler->protects_checkout_order() || $owned_order !== $handler->created_checkout_order( $order_id ) ) { if ( $handler && $handler->protects_checkout_order() ) { $handler->fail_checkout_order(); } throw new \WPGraphQL\WooCommerce\Utils\Cart_Session_Transition_Error(); }
+			$handler->begin_checkout_deferred_payment( $owned_order );
+			try { $deferred_result = apply_filters( 'graphql_woocommerce_checkout_payment_result', null, $order_id, $payment_method, $owned_order ); }
+			catch ( \Throwable $error ) { $handler->fail_checkout_order( $error ); }
+			$handler->finish_checkout_deferred_payment( $owned_order, $deferred_result );
+			return $deferred_result;
+		}
 		$deferred_result = apply_filters( 'graphql_woocommerce_checkout_payment_result', null, $order_id, $payment_method );
 		if ( null !== $deferred_result ) {
 			if ( ! is_array( $deferred_result ) || ! isset( $deferred_result['result'], $deferred_result['redirect'] ) ) {
@@ -563,13 +577,17 @@ class Checkout_Mutation {
 	 *
 	 * @return array
 	 */
-	protected static function process_order_without_payment( $order_id, $transaction_id = '' ) {
-		$order = wc_get_order( $order_id );
+	protected static function process_order_without_payment( $order_id, $transaction_id = '', $owned_order = null ) {
+		$order = null !== $owned_order ? $owned_order : wc_get_order( $order_id );
 		if ( ! is_object( $order ) || ! is_a( $order, \WC_Order::class ) ) {
 			throw new \Exception( __( 'Failed to retrieve order.', 'wp-graphql-woocommerce' ) );
 		}
 
-		$order->payment_complete( $transaction_id );
+		// Native completion can save paid status before a later callback fails.
+		// Its boolean result, not saved status alone, controls checkout success.
+		if ( true !== $order->payment_complete( $transaction_id ) ) {
+			throw new UserError( __( 'Unable to complete this order. Please contact the store before trying again.', 'wp-graphql-woocommerce' ) );
+		}
 
 		return [
 			'result'   => 'success',
@@ -592,6 +610,7 @@ class Checkout_Mutation {
 	 * @return int Order ID.
 	 */
 	public static function process_checkout( $data, $input, $context, $info, &$results = null ) {
+		$retirement_nonce = self::requested_cart_retirement( $input );
 		wc_maybe_define_constant( 'WOOCOMMERCE_CHECKOUT', true );
 		wc_set_time_limit( 0 );
 
@@ -621,7 +640,7 @@ class Checkout_Mutation {
 		// reuse an already validated, unchanged order in this exact session.
 		$retry_id = absint( WC()->session->get( 'order_awaiting_payment' ) );
 		$retry_order = $retry_id ? wc_get_order( $retry_id ) : false;
-		if ( $retry_order instanceof \WC_Order
+		if ( empty( $data['createaccount'] ) && $retry_order instanceof \WC_Order
 			&& $retry_order->get_meta( '_woonuxt_deferred_payment' ) === 'yes'
 			&& $retry_order->get_payment_method() === 'stripe'
 			&& $data['payment_method'] === 'stripe'
@@ -631,19 +650,28 @@ class Checkout_Mutation {
 			&& (int) $retry_order->get_customer_id() === get_current_user_id()
 			&& self::matches_retry_checkout_data( $retry_order, $data ) ) {
 			$results = [ 'result' => 'pending', 'redirect' => '' ];
+			if ( null !== $retirement_nonce ) { self::retire_deferred_checkout_cart( $retry_id, $retry_order, $results, $retirement_nonce ); }
 			return $retry_id;
 		}
 
 		// Validate posted data and cart items before proceeding.
 		self::validate_checkout( $data );
 
-		self::process_customer( $data );
+		self::process_customer( $data, $context, $info );
+		$handler = WC()->session instanceof \WPGraphQL\WooCommerce\Utils\QL_Session_Handler ? WC()->session : null;
+		if ( $handler && $handler->has_checkout_creation() ) {
+			$handler->protect_checkout_order();
+			if ( WC()->session->get( 'order_awaiting_payment' ) ) {
+				throw new \WPGraphQL\WooCommerce\Utils\Cart_Session_Transition_Error();
+			}
+		}
 		$order_id = WC()->checkout->create_order( $data );
-		$order    = wc_get_order( $order_id );
-
 		if ( is_wp_error( $order_id ) ) {
 			throw new UserError( $order_id->get_error_message() );
 		}
+
+		$order = $handler && $handler->protects_checkout_order() ? $handler->created_checkout_order( $order_id ) : wc_get_order( $order_id );
+		if ( $handler ) { $handler->verify_checkout_order_return( $order_id, $order ); }
 
 		if ( ! is_object( $order ) || ! is_a( $order, \WC_Order::class ) ) {
 			throw new UserError( __( 'Unable to create order.', 'wp-graphql-woocommerce' ) );
@@ -660,7 +688,7 @@ class Checkout_Mutation {
 
 		// Add meta data.
 		if ( ! empty( $input['metaData'] ) ) {
-			self::update_order_meta( $order_id, $input['metaData'], $input, $context, $info );
+			self::update_order_meta( $order_id, $input['metaData'], $input, $context, $info, $handler && $handler->protects_checkout_order() ? $order : null );
 		}
 
 		// phpcs:ignore WordPress.NamingConventions.PrefixAllGlobals.NonPrefixedHooknameFound
@@ -670,16 +698,116 @@ class Checkout_Mutation {
 		// isPaid, transactionId and checkout metadata are not provider evidence.
 		// Use the newly created order (after validation/totals) as the authority.
 		if ( $order->needs_payment() ) {
-			$results = self::process_order_payment( $order_id, $data['payment_method'] );
+			$results = self::process_order_payment( $order_id, $data['payment_method'], $handler && $handler->protects_checkout_order() ? $order : null );
 		} else {
-			$results = self::process_order_without_payment( $order_id );
+			if ( $handler && $handler->protects_checkout_order() ) { $handler->begin_checkout_free_payment( $order ); }
+			$results = self::process_order_without_payment( $order_id, '', $handler && $handler->protects_checkout_order() ? $order : null );
 		}//end if
 
-		if ( 'success' === $results['result'] ) {
-			wc_empty_cart();
+		if ( null !== $retirement_nonce && ! ( $handler && $handler->protects_checkout_order() ) && [ 'result' => 'pending', 'redirect' => '' ] === $results
+			&& 'stripe' === $data['payment_method'] ) {
+			self::retire_deferred_checkout_cart( $order_id, $order, $results, $retirement_nonce );
+		}
+
+		if ( 'success' === $results['result'] || ( $handler && $handler->protects_checkout_order() && 'pending' === $results['result'] ) ) {
+			if ( $handler && $handler->protects_checkout_order() ) {
+				// Captured guest writers are closed; make the actual empty-cart effect explicit.
+				WC()->cart->empty_cart();
+				$handler->get_owned_lifecycle()->flush_empty_checkout_cart();
+			} else { wc_empty_cart(); }
 		}
 
 		return $order_id;
+	}
+
+	/** Read the optional versioned retirement request without persisting browser metadata. */
+	private static function requested_cart_retirement( $input ): ?string {
+		$values = [];
+		foreach ( (array) ( $input['metaData'] ?? [] ) as $meta ) {
+			if ( ( $meta['key'] ?? null ) === '_wl_checkout_cart_retirement' ) { $values[] = $meta['value'] ?? null; }
+		}
+		if ( ! $values ) { return null; }
+		if ( 1 !== count( $values ) || ! is_string( $values[0] )
+			|| ! preg_match( '/\Av1:([a-f0-9]{8}-[a-f0-9]{4}-4[a-f0-9]{3}-[89ab][a-f0-9]{3}-[a-f0-9]{12})\z/D', $values[0], $match ) ) {
+			throw new \WPGraphQL\WooCommerce\Utils\Cart_Session_Transition_Error();
+		}
+		return $match[1];
+	}
+
+	/** Retire the submitted cart within its held scope, then persist a fresh acknowledgment.
+	 * The order receipt owns payment retries; an old receipt never clears a cart.
+	 */
+	private static function retire_deferred_checkout_cart( $order_id, $order, $result, string $request_nonce ): void {
+		$wc = WC();
+		$handler = $wc->session ?? null;
+		$cart = $wc->cart ?? null;
+		if ( ! $handler instanceof \WPGraphQL\WooCommerce\Utils\QL_Session_Handler
+			|| $handler->protects_checkout_order() || ! $cart instanceof \WC_Cart
+			|| ! is_int( $order_id ) || $order_id <= 0 || ! $order instanceof \WC_Order
+			|| [ 'result' => 'pending', 'redirect' => '' ] !== $result ) {
+			throw new \WPGraphQL\WooCommerce\Utils\Cart_Session_Transition_Error();
+		}
+		$handler->assert_session_ready();
+		$handler->assert_owned_scope();
+		// Ordinary deferral can save metadata through another native order receiver.
+		// Read persisted deferral under the held scope before validating retirement.
+		$order->read_meta_data( true );
+		$handler->assert_session_ready();
+		$handler->assert_owned_scope();
+		if ( $order->get_id() !== $order_id
+			|| 'stripe' !== $order->get_payment_method() || 'yes' !== $order->get_meta( '_woonuxt_deferred_payment' )
+			|| ! $order->has_status( [ 'pending', 'failed' ] ) || $order->is_paid() || $order->get_date_paid() || $order->get_transaction_id()
+			|| (int) $order->get_customer_id() !== get_current_user_id()
+			|| (int) $handler->get( 'order_awaiting_payment' ) !== $order_id
+			|| $cart->is_empty() || ! $order->has_cart_hash( $cart->get_cart_hash() ) ) {
+			throw new \WPGraphQL\WooCommerce\Utils\Cart_Session_Transition_Error();
+		}
+		// Carry the exact awaiting-session authorization into the existing narrow
+		// receipt binding before native cart clearing removes the awaiting ID.
+		$order_key = $order->get_order_key();
+		if ( ! is_string( $order_key ) || '' === $order_key ) {
+			throw new \WPGraphQL\WooCommerce\Utils\Cart_Session_Transition_Error();
+		}
+		$binding = hash( 'sha256', $order_key );
+		$summary_orders = $handler->get( 'wl_checkout_summary_orders', [] );
+		$summary_orders = is_array( $summary_orders ) ? $summary_orders : [];
+		unset( $summary_orders[ $order_id ] );
+		$summary_orders[ $order_id ] = $binding;
+		$handler->set( 'wl_checkout_summary_orders', array_slice( $summary_orders, -10, null, true ) );
+		$handler->begin_ordinary_checkout_cart_retirement( $order );
+		// Include the persistent cart, so a later sign-in cannot resurrect this order.
+		$cart->empty_cart( true );
+		$handler->assert_session_ready();
+		$handler->assert_owned_scope();
+		if ( WC()->session !== $handler || WC()->cart !== $cart || ! $cart->is_empty()
+			|| $handler->get( 'cart' ) || $handler->get( 'order_awaiting_payment' )
+			|| $binding !== ( $handler->get( 'wl_checkout_summary_orders', [] )[ $order_id ] ?? null ) ) {
+			throw new \WPGraphQL\WooCommerce\Utils\Cart_Session_Transition_Error();
+		}
+		// Only this completed retirement issues a fresh acknowledgment. Request and
+		// acknowledgment keys are excluded from browser-writable order metadata.
+		$store = $order->get_data_store();
+		$acknowledgment = 'v1:' . $request_nonce . ':' . bin2hex( random_bytes( 16 ) );
+		$order->update_meta_data( '_wl_checkout_cart_retired', $acknowledgment );
+		$order->save_meta_data();
+		$order->read_meta_data( true );
+		$handler->assert_session_ready();
+		$handler->assert_owned_scope();
+		if ( WC()->session !== $handler || WC()->cart !== $cart || $order->get_data_store() !== $store
+			|| $order->get_id() !== $order_id || (int) $order->get_customer_id() !== get_current_user_id()
+			|| ! $order->has_status( [ 'pending', 'failed' ] ) || $order->is_paid() || $order->get_date_paid() || $order->get_transaction_id()
+			|| ! $cart->is_empty() || $handler->get( 'cart' ) || $handler->get( 'order_awaiting_payment' )
+			|| $binding !== ( $handler->get( 'wl_checkout_summary_orders', [] )[ $order_id ] ?? null ) ) {
+			throw new \WPGraphQL\WooCommerce\Utils\Cart_Session_Transition_Error();
+		}
+		$matches = [];
+		foreach ( $order->get_meta_data() as $meta ) {
+			if ( '_wl_checkout_cart_retired' === $meta->key ) { $matches[] = $meta; }
+		}
+		if ( 1 !== count( $matches ) || ! is_int( $matches[0]->id ) || $matches[0]->id <= 0
+			|| $matches[0]->value !== $acknowledgment ) {
+			throw new \WPGraphQL\WooCommerce\Utils\Cart_Session_Error( \WPGraphQL\WooCommerce\Utils\Cart_Session_Error::UNAVAILABLE );
+		}
 	}
 
 	/** Check that a retry retains the validated addresses and shipping selection. */
@@ -767,8 +895,13 @@ class Checkout_Mutation {
 	 *
 	 * @return void
 	 */
-	public static function update_order_meta( $order_id, $meta_data, $input, $context, $info ) {
-		$order = \WC_Order_Factory::get_order( $order_id );
+	public static function update_order_meta( $order_id, $meta_data, $input, $context, $info, $owned_order = null ) {
+		$order = null !== $owned_order ? $owned_order : \WC_Order_Factory::get_order( $order_id );
+		$handler = WC()->session instanceof \WPGraphQL\WooCommerce\Utils\QL_Session_Handler ? WC()->session : null;
+		if ( null !== $owned_order ) {
+			if ( ! $handler || ! $handler->protects_checkout_order() || $order !== $handler->created_checkout_order( $order_id ) ) { if ( $handler && $handler->protects_checkout_order() ) { $handler->fail_checkout_order(); } throw new \WPGraphQL\WooCommerce\Utils\Cart_Session_Transition_Error(); }
+			$handler->begin_checkout_meta_save( $order );
+		}
 		if ( ! is_object( $order ) ) {
 			throw new \Exception( __( 'Failed to retrieve order.', 'wp-graphql-woocommerce' ) );
 		}
@@ -824,5 +957,6 @@ class Checkout_Mutation {
 		do_action( 'graphql_woocommerce_before_checkout_meta_save', $order, $meta_data, $input, $context, $info );
 
 		$order->save();
+		if ( null !== $owned_order ) { $handler->finish_checkout_meta_save( $order ); }
 	}
 }

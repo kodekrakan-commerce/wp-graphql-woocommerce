@@ -3,7 +3,9 @@
   "type": "wordpress-plugin",
   "description": "(QL)ommerce - Add WooCommerce support and functionality to your WPGraphQL server",
   "license": "GPL-3.0-or-later",
-  "require": {},
+  "require": {
+    "php": ">=8.2"
+  },
   "extra": {
     "comment": "Distribution build from official GitHub Release Asset v0.21.2. Dependencies are pre-bundled in vendor/ and vendor-prefixed/ folders. Do not run composer install/update on this package."
   }
