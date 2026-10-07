@@ -1,0 +1,189 @@
+<?php
+/** Synthetic WordPress/HTTP/auth/persistence boundaries; no session or JWT copies. */
+
+namespace WPGraphQL {
+	final class Router {
+		public static function is_graphql_http_request() { return \HandlerContractBoundary::$graphql; }
+	}
+}
+
+namespace {
+	final class HandlerContractBoundary {
+		public static array $hooks = [];
+		public static array $events = [];
+		public static array $rows = [];
+		// Options markers are distinct from session rows; SQL remains controlled.
+		public static array $markers = [];
+		public static array $cache = [];
+		public static array $transients = [];
+		public static int $user = 0;
+		public static bool $graphql = true;
+		public static bool $sticky_cache = false;
+		public static bool $throw_translation = false;
+		public static $woocommerce;
+		public static function event( string $kind, $identity = null ): void {
+			self::$events[] = [ 'kind' => $kind, 'identity' => $identity ];
+		}
+		public static function count( array $kinds, int $since = 0 ): int {
+			return count( array_filter( array_slice( self::$events, $since ), static fn( $e ) => in_array( $e['kind'], $kinds, true ) ) );
+		}
+	}
+
+	final class HandlerContractDatabase implements \WLCommerce\Database\Owned_Scope_Driver {
+        public string $usermeta='contract_usermeta'; public string $prefix = 'contract_'; public string $users = 'contract_users'; public string $options = 'contract_options'; public string $last_error = '';
+        public array $marker_reads = []; public ?string $marker_failure = null; public bool $marker_last_error = false; public bool $marker_post_failure = false;
+        public bool $throw_qualification = false; public $timeout; public $state = 'inactive'; public $failed = false; public $handle; public $write_result = 1;
+        public $repopulate_on_write = false; public $report_failed = false; public $report_failed_after_release = false; public $throw_begin = false; public $throw_seal = false; public $throw_release = false; public array $queries = []; public array $calls = []; public int $reads = 0; public int $writes = 0;
+        /** Only records the declared adapter boundary; no real-driver grant. */
+        public function qualify_stable_callback(string $hook, callable $callback, string $expected): void {
+            $this->calls[]='qualify'; HandlerContractBoundary::event('callback-qualify');
+            if ($hook !== 'all' || $callback[1] !== 'guard_sanitizer_dispatch' || $this->throw_qualification) { throw new RuntimeException('Controlled qualification failure.'); }
+        }
+        public function begin_owned_scope(array $locks, int $timeout): object { $this->calls[]='begin'; $this->timeout=$timeout; if($this->throw_begin){throw new RuntimeException('Synthetic acquisition failure.');} HandlerContractBoundary::event('scope-begin'); $this->handle=new stdClass(); $this->state='active'; return $this->handle; }
+        public function assert_owned(object $handle): void { $this->calls[]='assert'; if ($handle!==$this->handle || $this->failed || !in_array($this->state,['active','sealed'],true)) { throw new RuntimeException('Synthetic ownership unavailable.'); } }
+        public function seal_owned_scope(object $handle): void { $this->assert_owned($handle); $this->calls[]='seal'; if($this->throw_seal){throw new RuntimeException('Synthetic seal failure.');} HandlerContractBoundary::event('scope-seal'); $this->state='sealed'; }
+        public function release_owned_scope(object $handle): void { $this->assert_owned($handle); $this->calls[]='release'; if($this->throw_release){throw new RuntimeException('Synthetic release failure.');} HandlerContractBoundary::event('scope-release'); $this->state='released'; if($this->report_failed_after_release){$this->report_failed=true;} }
+        public function abort_owned_scope(object $handle): void { if ($handle!==$this->handle) { throw new RuntimeException('Wrong synthetic handle.'); } $this->calls[]='abort'; HandlerContractBoundary::event('scope-abort'); $this->state='failed'; $this->failed=true; }
+        public function get_failure_state(object $handle): array { $this->calls[]='state'; if($handle!==$this->handle) { throw new RuntimeException('Wrong synthetic handle.'); } return ['state'=>$this->state,'failed'=>$this->failed||$this->report_failed]; }
+        public function delete($table,$where){if($table!=='contract_woocommerce_sessions'||array_keys($where)!==['session_key']){throw new RuntimeException('Unexpected native delete');}$this->writes++;HandlerContractBoundary::event('db-delete',$where['session_key']);unset(HandlerContractBoundary::$rows[$where['session_key']]);return 1;}
+        public function update($table,$data,$where,$format=[]){if($table!=='contract_woocommerce_sessions'||array_keys($data)!==['session_expiry']||array_keys($where)!==['session_key']){throw new RuntimeException('Unexpected native timestamp');}$this->writes++;HandlerContractBoundary::event('timestamp-write',$where['session_key']);return 1;}
+        public function get_results($key) { $q=$this->queries[$key]; if(!str_contains($q[0],'FROM contract_usermeta') || !str_contains($q[0],'ORDER BY umeta_id')){throw new RuntimeException('Unexpected metadata SQL');} HandlerContractBoundary::event('metadata-sql-read'); return []; }
+        public function prepare($query,...$args) { $key='synthetic-query-'.count($this->queries); $this->queries[$key]=[$query,$args]; return $key; }
+        public function get_var($key) {
+            $q=$this->queries[$key];
+            if ('SELECT option_value FROM %i WHERE option_name = %s' === $q[0]) {
+                $id=$q[1][1]; $this->marker_reads[]=$id; HandlerContractBoundary::event('marker-read', $id);
+                if ($this->marker_failure === $id) { throw new RuntimeException('Synthetic marker read failure.'); }
+                if ($this->marker_last_error) { $this->last_error='Synthetic marker uncertainty.'; }
+                if ($this->marker_post_failure) { $this->failed=true; }
+                return HandlerContractBoundary::$markers[$id] ?? null;
+            }
+            if ('SELECT session_value FROM %i WHERE session_key = %s'!==$q[0] || 'contract_woocommerce_sessions'!==$q[1][0]) {throw new RuntimeException('Unexpected session SQL');} $this->reads++; HandlerContractBoundary::event('db-read'); $id=(string)$q[1][1]; return isset(HandlerContractBoundary::$rows[$id]) ? serialize(HandlerContractBoundary::$rows[$id]) : null;
+        }
+        public function get_row($key) { $q=$this->queries[$key] ?? null; if ($q && 'SELECT option_value, autoload FROM %i WHERE option_name = %s' === $q[0]) { $id=$q[1][1]; $this->marker_reads[]=$id; HandlerContractBoundary::event('marker-read', $id); if ($this->marker_failure === $id) { throw new RuntimeException('Synthetic marker failure.'); } if ($this->marker_last_error) { $this->last_error='Synthetic marker uncertainty.'; } if ($this->marker_post_failure) { $this->failed=true; } $value=HandlerContractBoundary::$markers[$id] ?? null; return null === $value ? null : (object)['option_value'=>$value,'autoload'=>'no']; } if (!$q || 'SELECT ID, user_login, user_email, user_nicename FROM %i WHERE ID = %d'!==$q[0] || ['contract_users',17]!==$q[1]) {throw new RuntimeException('Unexpected account SQL');} $this->reads++; HandlerContractBoundary::event('account-read'); return (object)['ID'=>17,'user_login'=>'synthetic','user_email'=>'synthetic@example.invalid','user_nicename'=>'synthetic']; }
+        public function query($key) { $this->writes++; if($this->repopulate_on_write) { HandlerContractBoundary::$cache[WC_SESSION_CACHE_GROUP . ':wc_cache_fixed-prefix_' . str_repeat('a',32)]=['cart'=>'stale']; } $q=$this->queries[$key]; if('contract_woocommerce_sessions'!==$q[1][0] || !str_starts_with(trim($q[0]),'INSERT INTO %i (`session_key`, `session_value`, `session_expiry`) VALUES')){throw new RuntimeException('Unexpected session write SQL');} $kind=str_starts_with(trim($q[0]),'INSERT')?'db-write':(str_starts_with(trim($q[0]),'DELETE')?'db-delete':'timestamp-write'); HandlerContractBoundary::event($kind); if(false!==$this->write_result && 'db-write'===$kind) { HandlerContractBoundary::$rows[(string)$q[1][1]]=unserialize($q[1][2],['allowed_classes'=>false]); } return $this->write_result; }
+    }
+
+    /** Existing version-1 protocol without the optional qualification capability. */
+    final class HandlerContractMissingQualificationDatabase implements \WLCommerce\Database\Owned_Scope_Driver {
+        public string $prefix='contract_'; public string $options='contract_options';
+        public array $calls=[]; public array $marker_reads=[]; public int $reads=0; public int $writes=0;
+        public function begin_owned_scope(array $locks,int $timeout): object { $this->calls[]='begin'; HandlerContractBoundary::event('scope-begin'); throw new RuntimeException('Missing capability must reject before begin.'); }
+        public function assert_owned(object $handle): void {}
+        public function seal_owned_scope(object $handle): void {}
+        public function release_owned_scope(object $handle): void {}
+        public function abort_owned_scope(object $handle): void {}
+        public function get_failure_state(object $handle): array { return ['state'=>'inactive','failed'=>false]; }
+    }
+
+	final class WP_Error {
+		public function __construct( private $code = '', private $message = '' ) {}
+		public function get_error_code() { return $this->code; }
+		public function get_error_message() { return $this->message; }
+	}
+
+	if ( ! function_exists( 'add_filter' ) ) {
+	function add_filter( $hook, $callback, $priority = 10, $accepted = 1 ) {
+		HandlerContractBoundary::$hooks[$hook][$priority][] = [ $callback, $accepted ];
+		return true;
+	}
+	}
+	if ( ! function_exists( 'add_action' ) ) {
+	function add_action( $hook, $callback, $priority = 10, $accepted = 1 ) { return add_filter( $hook, $callback, $priority, $accepted ); }
+	}
+	if ( ! function_exists( 'remove_action' ) ) {
+	function remove_action( $hook, $callback, $priority = 10 ) {
+		$removed = false;
+		foreach ( HandlerContractBoundary::$hooks[$hook][$priority] ?? [] as $index => [ $registered, $accepted ] ) {
+			if ( $registered === $callback ) { unset( HandlerContractBoundary::$hooks[$hook][$priority][$index] ); $removed = true; }
+		}
+		return $removed;
+	}
+	}
+	if ( ! function_exists( 'apply_filters' ) ) {
+	function apply_filters( $hook, $value, ...$args ) {
+		if ( in_array( $hook, [ 'wc_session_expiring', 'wc_session_expiration' ], true ) ) {
+			HandlerContractBoundary::event( 'expiration-change' );
+		}
+		HandlerContractBoundary::event( 'filter:' . $hook );
+		if ( 'graphql_woocommerce_cart_session_signed_token' === $hook ) { HandlerContractBoundary::event( 'token-built' ); }
+		if ( 'woocommerce_persistent_cart_enabled' === $hook ) { HandlerContractBoundary::event( 'persistent-cart-policy' ); }
+		$priorities = HandlerContractBoundary::$hooks[$hook] ?? [];
+		ksort( $priorities );
+		foreach ( $priorities as $callbacks ) {
+			foreach ( $callbacks as [ $callback, $accepted ] ) { $value = $callback( ...array_slice( [ $value, ...$args ], 0, $accepted ) ); }
+		}
+		return $value;
+	}
+	}
+	if ( ! function_exists( 'apply_filters_deprecated' ) ) {
+	function apply_filters_deprecated( $hook, $args, ...$unused ) { return apply_filters( $hook, ...$args ); }
+	}
+	if ( ! function_exists( 'do_action' ) ) {
+	function do_action( $hook, ...$args ) {
+		$priorities = HandlerContractBoundary::$hooks[$hook] ?? [];
+		ksort( $priorities );
+		foreach ( $priorities as $callbacks ) {
+			foreach ( $callbacks as [ $callback, $accepted ] ) { $callback( ...array_slice( $args, 0, $accepted ) ); }
+		}
+	}
+	}
+	function is_user_logged_in() { return HandlerContractBoundary::$user > 0; }
+	function WC() { return HandlerContractBoundary::$woocommerce ?? (object) []; }
+	function get_current_user_id() { return HandlerContractBoundary::$user; }
+	function is_wp_error( $value ) { return $value instanceof WP_Error; }
+	if ( ! function_exists( '__' ) ) {
+		function __( $message, $domain = null ) {
+			if ( HandlerContractBoundary::$throw_translation ) { throw new RuntimeException( 'Synthetic translation failure.' ); }
+			return $message;
+		}
+	}
+	function get_bloginfo( $name ) { return 'https://offline.example.invalid'; }
+	function sanitize_key( $key ) { return preg_replace( '/[^a-z0-9_\-]/', '', strtolower( (string) $key ) ); }
+	function maybe_serialize( $value ) { return is_array( $value ) || is_object( $value ) ? serialize( $value ) : $value; }
+	function maybe_unserialize( $value ) { return is_string( $value ) && preg_match( '/^(a|O|s|i|b|d):/', $value ) ? unserialize( $value, [ 'allowed_classes' => false ] ) : $value; }
+	function absint( $value ) { return abs( (int) $value ); }
+	function wc_rand_hash( $prefix = '', $length = 30 ) {
+		HandlerContractBoundary::event( 'identity-generated' );
+		return $prefix . substr( str_repeat( 'f', 32 ), 0, $length );
+	}
+	function wp_cache_get( $key, $group, $force = false, &$found = null ) {
+		HandlerContractBoundary::event( 'cache-read', $key );
+		$found = array_key_exists( $group . ':' . $key, HandlerContractBoundary::$cache );
+		return $found ? HandlerContractBoundary::$cache[$group . ':' . $key] : false;
+	}
+	function wp_cache_set( $key, $value, $group, $expiration = 0 ) {
+		HandlerContractBoundary::event( 'cache-write', $key );
+		HandlerContractBoundary::$cache[$group . ':' . $key] = $value;
+		return true;
+	}
+	function wp_cache_add( $key, $value, $group, $expiration = 0 ) { return wp_cache_set( $key, $value, $group, $expiration ); }
+	function wp_cache_delete( $key, $group ) {
+		HandlerContractBoundary::event( 'cache-delete', $key );
+		if ( ! HandlerContractBoundary::$sticky_cache ) { unset( HandlerContractBoundary::$cache[$group . ':' . $key] ); }
+		return true;
+	}
+	function wc_setcookie( ...$args ) { HandlerContractBoundary::event( 'cookie-emitted', $args ); }
+	function wc_site_is_https() { return true; }
+	function is_ssl() { return true; }
+	function wp_hash( $message ) { return hash( 'sha256', 'synthetic-cookie-boundary' . $message ); }
+	function wp_fast_hash( $message ) { return hash( 'sha256', 'synthetic-cookie-boundary' . $message ); }
+	function wp_verify_fast_hash( $message, $hash ) { return hash_equals( wp_fast_hash( $message ), $hash ); }
+	function wp_unslash( $value ) { return is_array($value) ? array_map('wp_unslash',$value) : (is_string($value) ? stripslashes($value) : $value); }
+
+	function is_admin() { return false; }
+	function get_transient( $key ) {
+		HandlerContractBoundary::event( 'transient-read' );
+		return HandlerContractBoundary::$transients[$key] ?? false;
+	}
+	function set_transient( $key, $value, $expiration = 0 ) {
+		HandlerContractBoundary::event( 'transient-write' );
+		HandlerContractBoundary::$transients[$key] = $value;
+		return true;
+	}
+	function delete_transient( $key ) {
+		HandlerContractBoundary::event( 'transient-delete' );
+		unset( HandlerContractBoundary::$transients[$key] );
+		return true;
+	}
+}
